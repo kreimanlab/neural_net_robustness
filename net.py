@@ -1,13 +1,18 @@
-from convnetskeras.customlayers import crosschannelnormalization, \
-    splittensor
-from keras.layers import Flatten, Dense, Dropout, Activation, \
-    Input, merge
+from convnetskeras.convnets import preprocess_image_batch
+from convnetskeras.customlayers import crosschannelnormalization, splittensor
+from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge
 from keras.layers.convolutional import Convolution2D, MaxPooling2D, ZeroPadding2D
 from keras.models import Model
 from keras.optimizers import SGD
 
 
-def alexnet(weights_path=None):
+def alexnet(weights_path=None, metrics=[]):
+    """
+    Adapted from https://github.com/heuritech/convnets-keras/blob/d0256486ff90b0eec63b1d3a630323bacac28f7e/convnetskeras/convnets.py
+    :param weights_path:
+    :param metrics:
+    :return:
+    """
     inputs = Input(shape=(3, 227, 227))
 
     conv_1 = Convolution2D(96, 11, 11, subsample=(4, 4), activation='relu',
@@ -53,5 +58,10 @@ def alexnet(weights_path=None):
         model.load_weights(weights_path)
 
     sgd = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
-    model.compile(optimizer=sgd, loss='mse')
+    model.compile(optimizer=sgd, loss='mse', metrics=metrics)
     return model
+
+
+def preprocess_images_alexnet(image_paths):
+    return preprocess_image_batch(image_paths,
+                                  img_size=(256, 256), crop_size=(227, 227), color_mode="rgb")
