@@ -8,13 +8,13 @@ from keras.optimizers import SGD
 
 def alexnet(weights_path=None, metrics=[]):
     """
-    Adapted from https://github.com/heuritech/convnets-keras/blob/d0256486ff90b0eec63b1d3a630323bacac28f7e/convnetskeras/convnets.py
+    Adopted from https://github.com/heuritech/convnets-keras/blob/d0256486ff90b0eec63b1d3a630323bacac28f7e/convnetskeras/convnets.py
     :param weights_path:
     :param metrics:
     :return:
     """
     inputs = Input(shape=(3, 227, 227))
-
+    # convolutional and pooling layers
     conv_1 = Convolution2D(96, 11, 11, subsample=(4, 4), activation='relu',
                            name='conv_1')(inputs)
     conv_2 = MaxPooling2D((3, 3), strides=(2, 2))(conv_1)
@@ -42,15 +42,16 @@ def alexnet(weights_path=None, metrics=[]):
                            splittensor(ratio_split=2, id_split=i)(conv_5)
                        ) for i in range(2)], mode='concat', concat_axis=1, name="conv_5")
 
-    dense_6 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
-
-    dense_6 = Flatten(name="flatten")(dense_6)
-    dense_6 = Dense(4096, activation='relu', name='fc6')(dense_6)
-    dense_7 = Dropout(0.5)(dense_6)
-    dense_7 = Dense(4096, activation='relu', name='fc7')(dense_7)
-    dense_8 = Dropout(0.5)(dense_7)
-    dense_8 = Dense(1000, name='fc8')(dense_8)
-    prediction = Activation("softmax", name="softmax")(dense_8)
+    dense_1 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
+    # fully connected layers
+    dense_1 = Flatten(name="flatten")(dense_1)
+    dense_1 = Dense(4096, activation='relu', name='dense_1')(dense_1)
+    dense_2 = Dropout(0.5)(dense_1)
+    dense_2 = Dense(4096, activation='relu', name='dense_2')(dense_2)
+    dense_3 = Dropout(0.5)(dense_2)
+    dense_3 = Dense(1000, name='dense_3')(dense_3)
+    # softmax
+    prediction = Activation("softmax", name="softmax")(dense_3)
 
     model = Model(input=inputs, output=prediction)
 
