@@ -49,7 +49,7 @@ def imagenet_truths(directory):
 
 
 # weights
-download_if_needed("http://files.heuritech.com/weights/alexnet_weights.h5", "alexnet_weights.h5")
+download_if_needed("http://files.heuritech.com/weights/alexnet_weights.h5", "weights/alexnet.h5")
 # datasets
 if download_if_needed("http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar",
                       "datasets/VOC2012_original.tar"):
