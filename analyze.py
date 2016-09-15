@@ -1,60 +1,37 @@
+import pickle
 import argparse
+import itertools
 import os
-import h5py
+from collections import OrderedDict
+
 import numpy as np
-from functools import reduce
 from matplotlib import pyplot
 
-
-def __walk(dictionary, collect, key_chain=None):
-    result = {}
-    for key, item in dictionary.items():
-        sub_key_chain = (key_chain if key_chain is not None else []) + [key]
-        if callable(getattr(item, "items", None)):
-            result[key] = __walk(item, collect, key_chain=sub_key_chain)
-        else:
-            result[key] = collect(sub_key_chain, item)
-    return result
-
-
-def __walk_key_chain(dictionary, key_chain):
-    """
-    Walks down the nesting structure of a dictionary, following the keys in the `key_chain`.
-
-    Example:
-        d = {'a':
-              {'b':
-                {'c': 15}
-              }
-            }
-        __walk_key_chain(d, ['a', 'b', 'c'])  # returns 15
-    :param dictionary: a nested dictionary containing other dictionaries
-    :param key_chain: a list of keys to traverse down the nesting structure
-    :return: the value in the nested structure after traversing down the `key_chain`
-    """
-    return reduce(lambda d, k: d[k], key_chain, dictionary)
-
-
-def __load_weights(*weights_names):
-    weights = list()
-    for weights_name in weights_names:
-        filepath = "weights/%s.h5" % weights_name
-        with h5py.File(filepath, 'r') as file:
-            w = __walk(file, lambda _, x: np.array(x))
-            weights.append(w)
-    return weights if len(weights) > 1 else weights[0]
+from weights import load_weights, walk, walk_key_chain
 
 
 def __get_weights_diff(weights1, weights2):
-    return __walk(weights1, collect=lambda key_chain, w1: w1 - __walk_key_chain(weights2, key_chain))
+    return walk(weights1, collect=lambda key_chain, w1: w1 - walk_key_chain(weights2, key_chain))
 
 
 def __relativize(weights):
-    return __walk(weights, collect=lambda _, x: x / x.size)
+    return walk(weights, collect=lambda _, x: x / x.size)
 
 
 def __absolute_sum(weights):
-    return __walk(weights, collect=lambda _, x: np.absolute(x).sum())
+    return walk(weights, collect=lambda _, x: np.absolute(x).sum())
+
+
+def __plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None):
+    pyplot.bar(x, y)
+    pyplot.ylabel(ylabel)
+    if xticks is not None:
+        pyplot.xticks(x, xticks, rotation=90, ha='left')
+    if save_filepath is not None:
+        pyplot.savefig(save_filepath, bbox_inches='tight')
+        pyplot.close()
+    else:
+        pyplot.show()
 
 
 def __plot_weight_metric(weights_metric, figure_filename, ylabel=None):
@@ -65,40 +42,57 @@ def __plot_weight_metric(weights_metric, figure_filename, ylabel=None):
         keys.append(key_chain[-1])
         values.append(value)
 
-    __walk(weights_metric, collect_values)
+    walk(weights_metric, collect_values)
     keys, values = tuple(zip(*sorted(zip(keys, values))))
     key_indices = range(len(keys))
-    pyplot.bar(key_indices, values)
-    pyplot.ylabel(ylabel)
-    pyplot.xticks(key_indices, keys, rotation=90, ha='left')
-    pyplot.savefig(figure_filename, bbox_inches='tight')
-    pyplot.close()
+    __plot_bar(key_indices, values, xticks=keys, ylabel=ylabel, save_filepath=figure_filename)
 
 
 def __plot_num_weights(weights, weights_name):
-    num_weights = __walk(weights, collect=lambda _, x: x.size)
-    __plot_weight_metric(num_weights, "figures/%s-num_weights.pdf" % weights_name)
+    num_weights = walk(weights, collect=lambda _, x: x.size)
+    __plot_weight_metric(num_weights, "figures/weights/%s-num_weights.pdf" % weights_name)
 
 
-def __plot_weights_diffs(weights1, weights2, weights1_name, weights2_name):
-    # compute differences
-    weights_diffs = __get_weights_diff(weights1, weights2)
-    relative_total_diffs = __absolute_sum(__relativize(weights_diffs))
-    # plot
-    __plot_weight_metric(relative_total_diffs,
-                         "figures/%s-vs-%s.pdf" % (weights1_name, weights2_name),
-                         ylabel='Relative absolute diffs')
+def __plot_weights_diffs(weights):
+    # find pairs
+    combinations = map(OrderedDict, itertools.combinations(weights.items(), 2))
+    for w1_name, w2_name in combinations:
+        # compute differences
+        weights_diffs = __get_weights_diff(weights[w1_name], weights[w2_name])
+        relative_total_diffs = __absolute_sum(__relativize(weights_diffs))
+        # plot
+        __plot_weight_metric(relative_total_diffs,
+                             "figures/weights/%s-vs-%s.pdf" % (w1_name, w2_name),
+                             ylabel='Relative absolute diffs')
+
+
+def __plot_performances(weights, datasets):
+    for weights_name in weights:
+        metrics = []
+        for dataset in datasets:
+            results_filepath = "results/%s-%s.p" % (dataset, weights_name)
+            with open(results_filepath, 'rb') as results_file:
+                results = pickle.load(results_file)
+            metrics.append(results['metric'])
+        __plot_bar(range(len(metrics)), metrics, save_filepath="figures/performance/%s.pdf" % weights_name)
 
 
 if __name__ == '__main__':
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Analysis')
-    parser.add_argument('--weights1', type=str, default="alexnet",
-                        help='The first set of weights to compare with weights2')
-    parser.add_argument('--weights2', type=str, default="alexnet_retrained_on_VOC2012_for_10_epochs",
-                        help='The second set of weights to compare with weights1')
+    parser.add_argument('--weights', type=str, nargs='+',
+                        default=["alexnet", "alexnet_retrained_on_VOC2012_for_10_epochs"],
+                        help='The set of weights to compare with each other')
+    parser.add_argument('--datasets', type=str, nargs='+', default=['VOC2012'],
+                        help='The datasets to compare the evaluations on',
+                        choices=[d for d in os.listdir("datasets") if os.path.isdir(os.path.join("datasets", d))])
     args = parser.parse_args()
     print('Running analysis with args', args)
-    weights1, weights2 = __load_weights(args.weights1, args.weights2)
-    __plot_num_weights(weights1, args.weights1)
-    __plot_weights_diffs(weights1, weights2, args.weights1, args.weights2)
+    assert len(args.weights) >= 2, "Need at least two weights to compare"
+    loaded_weights = load_weights(*args.weights)
+    weights = OrderedDict(zip(args.weights, loaded_weights))
+    # compare weights
+    __plot_num_weights(weights[args.weights[0]], args.weights[0])
+    __plot_weights_diffs(weights)
+    # compare performance
+    __plot_performances(weights, args.datasets)
