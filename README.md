@@ -1,5 +1,7 @@
 
 ## Setup
+This project requires Python version >= 3.2.
+
 First, install library requirements by running `pip install -r requirements.txt`.
 
 Then download model weights and datasets by running `python setup.py`. This will:
@@ -10,7 +12,9 @@ Then download model weights and datasets by running `python setup.py`. This will
 
 
 ## Running
-Use `python run.py` to re-train and evaluate models.
+Use `python run.py` to re-train and evaluate models, 
+`python perturb_weights.py` to perturb the weights, 
+`python analyze.py` to analyze weights and results.
 
 ### Re-Training
 If the `--weights` argument is not set, the model will be trained on the dataset(s), for instance:
