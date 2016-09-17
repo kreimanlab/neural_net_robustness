@@ -42,7 +42,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Weight Perturbation')
     parser.add_argument('--weights', type=str, nargs='+', default=['alexnet'],
                         help='The weights to perturb')
-    parser.add_argument('--layer', type=str, default=['conv_1'],
+    parser.add_argument('--layer', type=str, nargs='+', default=['conv_1'],
                         help='In what layer(s) to perturb the weights')
     parser.add_argument('--perturbation', type=str, nargs='+', default=[next(perturbations.__iter__())],
                         help='How to perturb the weights')
