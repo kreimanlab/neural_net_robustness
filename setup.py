@@ -7,6 +7,12 @@ import scipy.io
 import shutil
 
 
+# directories
+def make_directories(*directories):
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+
+
 def download_if_needed(url, local_path):
     download_needed = not os.path.isfile(local_path)
     if download_needed:
@@ -48,13 +54,18 @@ def imagenet_truths(directory):
     return words
 
 
+# directories
+make_directories("weights", "datasets", "weights/perturbations", "results", "figures/weights", "figures/performance")
+
 # weights
 download_if_needed("http://files.heuritech.com/weights/alexnet_weights.h5", "weights/alexnet.h5")
+
 # datasets
-if download_if_needed("http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar",
-                      "datasets/VOC2012_original.tar"):
+if not os.path.isdir("datasets/VOC2012"):
+    download_if_needed("http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar",
+                       "datasets/VOC2012_original.tar")
     extract_tar("datasets/VOC2012_original.tar")
-    os.mkdir("datasets/VOC2012")
+    os.makedirs("datasets/VOC2012")
     for file in glob.glob("datasets/VOC2012_original/JPEGImages/*.jpg"):
         shutil.move(file, os.path.join("datasets/VOC2012", file.name))
     convert_truths("datasets/VOC2012_original/Annotations", voc_truth_collector)
