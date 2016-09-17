@@ -1,21 +1,25 @@
+from collections import OrderedDict
 from functools import reduce
 
 import h5py
 import numpy as np
 
 
-def load_weights(*weights_names):
+def load_weights(*weights_names, keep_names=False):
     weights = list()
     for weights_name in weights_names:
         filepath = "weights/%s.h5" % weights_name
         with h5py.File(filepath, 'r') as file:
             w = walk(file, lambda _, x: np.array(x))
             weights.append(w)
-    return weights if len(weights) > 1 else weights[0]
+    if not keep_names:
+        return weights if len(weights) > 1 else weights[0]
+    else:
+        return OrderedDict(zip(weights_names, weights))
 
 
 def walk(dictionary, collect, key_chain=None):
-    result = {}
+    result = OrderedDict()
     for key, item in dictionary.items():
         sub_key_chain = (key_chain if key_chain is not None else []) + [key]
         if callable(getattr(item, "items", None)):

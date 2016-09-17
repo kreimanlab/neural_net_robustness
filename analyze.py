@@ -89,8 +89,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print('Running analysis with args', args)
     assert len(args.weights) >= 2, "Need at least two weights to compare"
-    loaded_weights = load_weights(*args.weights)
-    weights = OrderedDict(zip(args.weights, loaded_weights))
+    weights = load_weights(*args.weights, keep_names=True)
     # compare weights
     __plot_num_weights(weights[args.weights[0]], args.weights[0])
     __plot_weights_diffs(weights)
