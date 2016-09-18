@@ -1,10 +1,13 @@
 import argparse
+import copy
+import functools
 import math
 import random
 
 import h5py
+import numpy as np
 
-from weights import load_weights
+from weights import load_weights, proportion_different
 
 
 def __dump_weights_to_hdf5(weights, filepath):
@@ -35,6 +38,46 @@ def __draw(x, proportion):
     return x_prime.reshape(x.shape)
 
 
+def __merge_sub_weights(weights, layer):
+    W, b = [], []
+    for weights_name, weight_values in weights.items():
+        if weights_name.startswith(layer) and weights_name != layer:
+            W.append(weights[weights_name][weights_name + '_W'])
+            b.append(weights[weights_name][weights_name + '_b'])
+    return {layer + '_W': np.array(W), layer + '_b': np.array(b)}
+
+
+def __divide_sub_weights(target_weights, source_weights):
+    for weights_name in target_weights:
+        if weights_name.startswith(layer) and weights_name != layer:
+            num = int(weights_name.split('_')[-1]) - 1
+            for weight_type in ['W', 'b']:
+                source_values = source_weights['_'.join(weights_name.split('_')[:-1]) + '_' + weight_type][num]
+                assert target_weights[weights_name][weights_name + '_' + weight_type].shape == source_values.shape
+                target_weights[weights_name][weights_name + '_' + weight_type] = source_values
+
+
+def __perturb_all(weights, layer, perturb_func):
+    """
+    Perturbs all weights in the `layer` using the `perturb_func`.
+    If the weights in this layer are divided, e.g. for layer 'conv_2' into 'conv_2_1' and 'conv_2_2',
+    merges all "sub-weights", perturbs them and divides them again according to the previous structure.
+    """
+    layer_weights = weights[layer]
+    if not layer_weights:  # sub-weights
+        layer_weights = __merge_sub_weights(weights, layer)
+
+    perturbed_weights = {}
+    for weight_name, weight_values in layer_weights.items():
+        # we want to change W and b separately because their distributions can be vastly different
+        perturbed_weights[weight_name] = perturb_func(weight_values)
+
+    if weights[layer]:  # no sub-weights
+        weights[layer] = perturbed_weights
+    else:  # has sub-weights
+        __divide_sub_weights(weights, perturbed_weights)
+
+
 if __name__ == '__main__':
     # options
     perturbations = {'draw': __draw}
@@ -46,8 +89,8 @@ if __name__ == '__main__':
                         help='In what layer(s) to perturb the weights')
     parser.add_argument('--perturbation', type=str, nargs='+', default=[next(perturbations.__iter__())],
                         help='How to perturb the weights')
-    parser.add_argument('--ratio', type=float, nargs='+', default=[.1],
-                        help='What ratio(s) of the weights to perturb')
+    parser.add_argument('--proportion', type=float, nargs='+', default=[.1],
+                        help='What proportion(s) of the weights to perturb')
     parser.add_argument('--num_perturbations', type=int, default=1,
                         help='How often to perturb the weights in different variations')
     args = parser.parse_args()
@@ -59,16 +102,15 @@ if __name__ == '__main__':
         for perturbation_name in args.perturbation:
             perturb = perturbations[perturbation_name]
             for layer in args.layer:
-                for ratio in args.ratio:
+                for proportion in args.proportion:
                     for nth_perturbation in range(1, args.num_perturbations + 1):
                         print('Perturbing %s.%s with %.2f %s (%d/%d)' %
-                              (weight_name, layer, ratio, perturbation_name, nth_perturbation, args.num_perturbations))
-                        perturbed_weights = weight_values
-                        for layer_weight_name, layer_weight_values in weight_values[layer].items():
-                            # we want to change W and b separately because their distributions can be vastly different
-                            perturbed_weights[layer][layer_weight_name] = perturb(
-                                perturbed_weights[layer][layer_weight_name], ratio)
+                              (weight_name, layer, proportion, perturbation_name, nth_perturbation,
+                               args.num_perturbations))
+                        perturbed_weights = copy.deepcopy(weight_values)
+                        __perturb_all(perturbed_weights, layer, functools.partial(perturb, proportion=proportion))
+                        assert proportion_different(weight_values, perturbed_weights) > 0, "No weights changed"
                         save_filepath = 'weights/perturbations/%s-%s-%s%.2f-num%d.h5' % \
-                                        (weight_name, layer, perturbation_name, ratio, nth_perturbation)
+                                        (weight_name, layer, perturbation_name, proportion, nth_perturbation)
                         __dump_weights_to_hdf5(perturbed_weights, save_filepath)
                         print('Saved to %s' % save_filepath)

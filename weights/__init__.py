@@ -45,3 +45,23 @@ def walk_key_chain(dictionary, key_chain):
     :return: the value in the nested structure after traversing down the `key_chain`
     """
     return reduce(lambda d, k: d[k], key_chain, dictionary)
+
+
+def proportion_different(weights1, weights2):
+    """
+    Returns the number of weights that changed across all layers
+    divided by the total number of weights across all layers.
+    """
+    assert weights1.keys() == weights2.keys()
+    num_weights = 0
+    num_weights_changed = 0
+
+    def count_weights(key_chain, w1):
+        w2 = walk_key_chain(weights2, key_chain)
+        assert w2.size == w1.size
+        nonlocal num_weights, num_weights_changed
+        num_weights += w1.size
+        num_weights_changed += (w1 != w2).sum()
+
+    walk(weights1, collect=count_weights)
+    return num_weights_changed / num_weights
