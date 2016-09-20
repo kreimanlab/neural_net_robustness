@@ -1,11 +1,13 @@
-import glob
+import os
+import pickle
 from numbers import Number
 
 
-def get_data(directory, extensions=['jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG']):
-    image_paths = [f for extension in extensions for f in glob.glob("%s/*.%s" % (directory, extension))]
-    with open("%s/ground_truth.txt" % directory, 'r') as truths_file:
-        truths = truths_file.read().splitlines()
+def get_data(directory):
+    truths_mapping = pickle.load(open("%s/ground_truths.p" % directory, 'rb'))
+    image_paths = [os.path.join(directory, "images", image_file) for image_file in truths_mapping.keys()]
+    truths = list(truths_mapping.values())
+
     if not all(isinstance(name, Number) for name in truths):
         unique = sorted(set(truths))
         indexed_truths = list()
