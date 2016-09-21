@@ -30,6 +30,13 @@ Run `python run.py` with the `--weights` argument set to evaluate the model on t
     python run.py --model alexnet --weights alexnet_retrained_on_VOC2012 --dataset VOC2012
 will evaluate the model `alexnet` with the weights `weights/alexnet_retrained_on_VOC2012.h5` on the dataset `VOC2012`.
 
+### Weight Perturbation
+Run `python perturb_weights.py` to perturb the weights of a model.
+For instance:
+
+    python perturb_weights.py --weights alexnet --layer conv_1 conv_2 conv_3 conv_4 conv_5 dense_1 dense_2 dense_3 --ratio 0.1 0.2 0.3 0.4 0.5 --num_perturbations 5
+will perturb all 8 layers of `weights/alexnet.h5` using the ratios `{0.1, 0.2, ..., 0.5}` and 5 different random variations for each layer.
+
 ### Analysis
 Run `python analyze.py <task>` to analyze the results 
 where `<task>` is one of `num_weights`, `weight_diffs`, `performances`.

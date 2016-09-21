@@ -2,3 +2,4 @@ h5py
 pillow
 keras
 git+https://github.com/heuritech/convnets-keras
+matplotlib
