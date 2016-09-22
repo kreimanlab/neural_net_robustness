@@ -11,7 +11,7 @@ from urllib.request import urlretrieve
 def __retrieve_tarred_content(remote_url, local_path):
     assert remote_url.endswith(".tar.gz") or remote_url.endswith(".tar")
     if os.path.exists(local_path):
-        print("Local path %s already exists" % local_path)
+        print("Not downloading %s - local path %s already exists" % (remote_url, local_path))
         return
     tar_path = "%s.%s" % (local_path, "tar.gz" if remote_url.endswith(".tar.gz") else "tar")
     __download_if_needed(remote_url, tar_path)
@@ -43,41 +43,60 @@ def __download_dataset(dataset, data_urls, convert_truths, collect_image_files, 
     os.makedirs(dataset_directory, exist_ok=True)
     for data_type, data_url in data_urls.items():
         datatype_directory = os.path.join(dataset_directory, data_type)
+        truths_filepath = os.path.join(datatype_directory, "ground_truths.p")
         images_directory = os.path.join(datatype_directory, "images")
-        if os.path.isdir(images_directory):
-            print("Skipping %s.%s - directory %s already exists" % (dataset, data_type, images_directory))
+        if os.path.isfile(truths_filepath) and os.path.isdir(images_directory):
+            print("Skipping %s/%s - truths file and images directory exist" % (dataset, data_type))
             continue
         print("Retrieving %s/%s..." % (dataset, data_type))
         compressed_directory = os.path.join(datasets_directory, dataset, data_type + "_compressed")
         __retrieve_tarred_content(data_url, compressed_directory)
 
-        print("Converting %s/%s truths" % (dataset, data_type))
-        truths = convert_truths(compressed_directory, data_type)
-        assert truths, "No truths converted"
-        truths_filepath = os.path.join(datatype_directory, "ground_truths.p")
-        os.makedirs(datatype_directory)
-        pickle.dump(truths, open(truths_filepath, 'wb'))
+        # truths
+        if os.path.isfile(truths_filepath):
+            print("Skipping truths for %s/%s - file %s already exists" % (dataset, data_type, truths_filepath))
+        else:
+            print("Converting truths for %s/%s" % (dataset, data_type))
+            truths = convert_truths(compressed_directory, data_type)
+            assert truths, "No truths converted"
+            os.makedirs(datatype_directory)
+            pickle.dump(truths, open(truths_filepath, 'wb'))
 
-        print("Collecting %s/%s images" % (dataset, data_type))
-        images_source_directory, image_files = collect_image_files(compressed_directory)
-        assert image_files, "No images found"
-        assert len(image_files) == len(truths), \
-            "Number of images (%d) differs from truths (%d)" % (len(image_files), len(truths))
-        images_truths_diffs = set(image_files) - set(truths.keys())
-        truths_images_diffs = set(truths.keys()) - set(image_files)
-        assert not images_truths_diffs and not truths_images_diffs, \
-            "image files and truths keys differ: only in images %s | only in truths %s" % (
-                ', '.join(images_truths_diffs), ', '.join(truths_images_diffs))
-        os.makedirs(images_directory)
-        for image_file in image_files:
-            shutil.move(os.path.join(images_source_directory, image_file), os.path.join(images_directory, image_file))
-        shutil.rmtree(compressed_directory)
+        # images
+        if os.path.isdir(images_directory):
+            print("Skipping images for %s/%s - directory %s already exists" % (dataset, data_type, images_directory))
+        else:
+            print("Collecting images for %s/%s" % (dataset, data_type))
+            images_source_directory, image_files = collect_image_files(compressed_directory)
+            assert image_files, "No images found"
+            assert len(image_files) == len(truths), \
+                "Number of images (%d) differs from truths (%d)" % (len(image_files), len(truths))
+            images_truths_diffs = set(image_files) - set(truths.keys())
+            truths_images_diffs = set(truths.keys()) - set(image_files)
+            assert not images_truths_diffs and not truths_images_diffs, \
+                "image files and truths keys differ: only in images %s | only in truths %s" % (
+                    ', '.join(images_truths_diffs), ', '.join(truths_images_diffs))
+            os.makedirs(images_directory)
+            for image_file in image_files:
+                shutil.move(os.path.join(images_source_directory, image_file),
+                            os.path.join(images_directory, image_file))
+            shutil.rmtree(compressed_directory)
 
 
 def __collect_images(images_directory, filetype):
     images_directory = os.path.realpath(images_directory)
     image_files = glob.glob(os.path.join(images_directory, "*." + filetype))
     return images_directory, [filepath[len(images_directory) + 1:] for filepath in image_files]
+
+
+def __collect_imagenet2012_images(dataset_directory):
+    _, data_type = os.path.split(dataset_directory)
+    if data_type.startswith("train"):
+        tarred_images = glob.glob(os.path.join(dataset_directory, "*.tar"))
+        assert tarred_images, "No tarred images found"
+        for tar in tarred_images:
+            __extract_tar(tar, dataset_directory)
+    return __collect_images(dataset_directory, "JPEG")
 
 
 def __convert_voc_truths(dataset_directory):
@@ -113,6 +132,7 @@ if __name__ == '__main__':
     parser.add_argument('--datasets_directory', type=str, default='datasets',
                         help='The directory for the datasets')
     args = parser.parse_args()
+    print('Running with args', args)
 
     # weights
     __download_if_needed("http://files.heuritech.com/weights/alexnet_weights.h5", "weights/alexnet.h5")
@@ -127,7 +147,7 @@ if __name__ == '__main__':
         __download_dataset("ILSVRC2012", datasets_directory=args.datasets_directory,
                            data_urls=imagenet_urls,
                            convert_truths=__convert_imagenet2012_truths,
-                           collect_image_files=lambda dataset_directory: __collect_images(dataset_directory, "JPEG"))
+                           collect_image_files=__collect_imagenet2012_images)
 
     __download_dataset("VOC2012", datasets_directory=args.datasets_directory,
                        data_urls={
