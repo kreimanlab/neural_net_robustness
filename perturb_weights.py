@@ -37,6 +37,11 @@ def __draw(x, proportion):
     x_prime[indices] = random.sample(list(x_prime), num_elements)
     return x_prime.reshape(x.shape)
 
+def __mutateGaussian(x, proportion):
+    # Note: proportion is used in a different context than in __draw, but is still the primary parameter of weight pertubtations
+    # It would help clarity of arg names to use differnet names for the different uses, but this was omitted for sake of succinctness
+    return x + np.random.normal(loc=0.0, scale=proportion*np.std(x),size=x.shape)
+
 
 def __merge_sub_weights(weights, layer):
     W, b = [], []
@@ -80,7 +85,7 @@ def __perturb_all(weights, layer, perturb_func):
 
 if __name__ == '__main__':
     # options
-    perturbations = {'draw': __draw}
+    perturbations = {'draw': __draw, 'mutateGaussian': __mutateGaussian}
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Weight Perturbation')
     parser.add_argument('--weights', type=str, nargs='+', default=['alexnet'],
@@ -90,7 +95,8 @@ if __name__ == '__main__':
     parser.add_argument('--perturbation', type=str, nargs='+', default=[next(perturbations.__iter__())],
                         help='How to perturb the weights')
     parser.add_argument('--proportion', type=float, nargs='+', default=[.1],
-                        help='What proportion(s) of the weights to perturb')
+                        help='In draw: what proportion(s) of the weights to perturb; \
+                              In mutateGaussian: the number of proportion of the standard distribution(s) of the current weights to use as the standard distrbution of the weight perturbations(s)')
     parser.add_argument('--num_perturbations', type=int, default=1,
                         help='How often to perturb the weights in different variations')
     args = parser.parse_args()
