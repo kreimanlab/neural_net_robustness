@@ -1,3 +1,4 @@
+import os
 from collections import OrderedDict
 from functools import reduce
 
@@ -65,3 +66,9 @@ def proportion_different(weights1, weights2):
 
     walk(weights1, collect=count_weights)
     return num_weights_changed / num_weights
+
+
+def validate_weights(weight_names):
+    exists = [os.path.isfile(os.path.join("weights", weight + ".h5")) for weight in weight_names]
+    assert all(exists), "weights do not exist: %s" % ", ".join(
+        weight for (weight, exist) in zip(weight_names, exists) if not exist)
