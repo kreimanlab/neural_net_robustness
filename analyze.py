@@ -40,8 +40,9 @@ def error(actual, predicted):
     return 1 - performance(actual, predicted)
 
 
-def __get_predictions(dataset, weights_name):
-    results_filepaths, nums = get_predictions_filepath(dataset, weights_name, variations=True)
+def __get_predictions(dataset, weights_name, predictions_directory):
+    results_filepaths, nums = get_predictions_filepath(dataset, weights_name,
+                                                       variations=True, predictions_directory=predictions_directory)
     predictions, nums_dict = {}, {}
     for filepath, num in zip(results_filepaths, nums):
         with open(filepath, 'rb') as results_file:
@@ -57,11 +58,11 @@ def __evaluate_metric(metric, predictions, truths_mapping):
     return metric(truths, predictions)
 
 
-def __analyze(weights, datasets_directory, datasets, metrics):
+def __analyze(weights, datasets_directory, datasets, metrics, predictions_directory="predictions"):
     for dataset in datasets:
         truths_mapping = get_data(dataset, datasets_directory)
         for weights_name in weights:
-            nummed_predictions, nums = __get_predictions(dataset, weights_name)
+            nummed_predictions, nums = __get_predictions(dataset, weights_name, predictions_directory)
             for prediction_filepath, prediction in nummed_predictions.items():
                 print("Analyzing %s..." % prediction_filepath, end='')
                 results = {}
@@ -93,6 +94,8 @@ if __name__ == '__main__':
                         help='The set of weights to compare with each other')
     parser.add_argument('--datasets_directory', type=str, default='datasets',
                         help='The directory all datasets are stored in')
+    parser.add_argument('--predictions_directory', type=str, default='predictions',
+                        help='The directory all predictions are stored in')
     parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
                         help='The datasets to compare the evaluations on')
     parser.add_argument('--metrics', type=str, nargs='+', default=[m for m in metrics],
@@ -101,4 +104,4 @@ if __name__ == '__main__':
     print('Running analysis with args', args)
     validate_datasets(args.datasets, args.datasets_directory)
     metrics = dict((metric, metrics[metric]) for metric in args.metrics)
-    __analyze(args.weights, args.datasets_directory, args.datasets, metrics)
+    __analyze(args.weights, args.datasets_directory, args.datasets, metrics, args.predictions_directory)

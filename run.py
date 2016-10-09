@@ -38,7 +38,8 @@ def __image_generator(image_truth_generator):
         yield image
 
 
-def retrain(model, datasets_directory, datasets, image_truth_generator, num_epochs=10, image_batch_size=1000):
+def retrain(model, datasets, image_truth_generator,
+            num_epochs=10, image_batch_size=1000, datasets_directory="datasets", weights_directory="weights"):
     for retrain_dataset in datasets:
         print("Collect %s" % retrain_dataset)
         truths_mapping = get_data(retrain_dataset, datasets_directory)
@@ -47,19 +48,21 @@ def retrain(model, datasets_directory, datasets, image_truth_generator, num_epoc
         # TODO: use best weights based on validation error
         model.fit_generator(generator, samples_per_epoch=len(truths_mapping), nb_epoch=num_epochs,
                             max_q_size=image_batch_size)
-        weights_file = "weights/retrain/%s/%s/%depochs.h5" % (args.model, retrain_dataset, args.num_epochs)
+        weights_file = "%s/retrain/%s/%s/%depochs.h5" % (
+            weights_directory, args.model, retrain_dataset, args.num_epochs)
         print("Save weights to %s" % weights_file)
         os.makedirs(os.path.dirname(weights_file), exist_ok=True)
         model.save_weights(weights_file)
 
 
-def predict(model, weights_names, datasets_directory, datasets, image_truth_generator, image_batch_size=1000):
+def predict(model, weights_names, datasets, image_truth_generator, image_batch_size=1000,
+            weights_directory="weights", datasets_directory="datasets", predictions_directory="predictions"):
     for dataset_name in datasets:
         print("Collect %s" % dataset_name)
         truths_mapping = get_data(dataset_name, datasets_directory)
         for weights_name in weights_names:
             print("Predicting with %s" % weights_name)
-            model.load_weights("weights/%s.h5" % weights_name)
+            model.load_weights("%s/%s.h5" % (weights_directory, weights_name))
             image_paths = []
             generator = image_truth_generator(truths_mapping, datasets_directory=datasets_directory,
                                               path_output=image_paths)
@@ -68,7 +71,8 @@ def predict(model, weights_names, datasets_directory, datasets, image_truth_gene
                                                   max_q_size=image_batch_size)
             mapped_predictions = dict((image, prediction) for image, prediction
                                       in zip(image_paths[:len(predictions)], predictions))
-            results_filepath = get_predictions_filepath(dataset_name, weights_name)
+            results_filepath = get_predictions_filepath(dataset_name, weights_name,
+                                                        predictions_directory=predictions_directory)
             print("Writing predictions to %s" % results_filepath)
             with open(results_filepath, 'wb') as results_file:
                 pickle.dump({'predictions': mapped_predictions, 'dataset': dataset_name, 'weights': weights_name},
@@ -83,8 +87,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Neural Net Robustness')
     parser.add_argument('--model', type=str, default=next(models.__iter__()),
                         help='The model to run', choices=models.keys())
+    parser.add_argument('--weights_directory', type=str, default='weights',
+                        help='The directory in which the weights are stored in')
     parser.add_argument('--datasets_directory', type=str, default='datasets',
-                        help='The directory all datasets are stored in')
+                        help='The directory in which the datasets are stored in')
+    parser.add_argument('--predictions_directory', type=str, default='predictions',
+                        help='The directory all predictions should be stored in')
     parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
                         help='The datasets to either re-train the model with or to predict')
     parser.add_argument('--weights', type=str, nargs='+', default=None,
@@ -97,7 +105,7 @@ if __name__ == '__main__':
     print('Running with args', args)
     weights = args.weights
     if weights is not None:
-        validate_weights(weights)
+        validate_weights(weights, args.weights_directory)
     datasets = args.datasets
     validate_datasets(datasets, args.datasets_directory)
     # model
@@ -109,9 +117,13 @@ if __name__ == '__main__':
     if weights is None:
         print("Retraining")
         model.load_weights("weights/%s.h5" % args.model)
-        retrain(model, args.datasets_directory, datasets, num_epochs=args.num_epochs,
-                image_truth_generator=generator, image_batch_size=args.image_batch_size)
+        retrain(model, datasets, num_epochs=args.num_epochs,
+                image_truth_generator=generator, image_batch_size=args.image_batch_size,
+                datasets_directory=args.datasets_directory, weights_directory=args.weights_directory)
     else:
         print("Predicting")
-        predict(model, weights, args.datasets_directory, datasets,
-                image_truth_generator=generator, image_batch_size=args.image_batch_size)
+        predict(model, weights, datasets,
+                image_truth_generator=generator, image_batch_size=args.image_batch_size,
+                weights_directory=args.weights_directory,
+                datasets_directory=args.datasets_directory,
+                predictions_directory=args.predictions_directory)

@@ -6,10 +6,10 @@ import h5py
 import numpy as np
 
 
-def load_weights(*weights_names, keep_names=False):
+def load_weights(*weights_names, keep_names=False, weights_directory='weights'):
     weights = list()
     for weights_name in weights_names:
-        filepath = "weights/%s.h5" % weights_name
+        filepath = "%s/%s.h5" % (weights_directory, weights_name)
         with h5py.File(filepath, 'r') as file:
             w = walk(file, lambda _, x: np.array(x))
             weights.append(w)
@@ -68,7 +68,8 @@ def proportion_different(weights1, weights2):
     return num_weights_changed / num_weights
 
 
-def validate_weights(weight_names):
-    exists = [os.path.isfile(os.path.join("weights", weight + ".h5")) for weight in weight_names]
+def validate_weights(weight_names, weights_directory="weights"):
+    weight_paths = [os.path.join(weights_directory, weight + ".h5") for weight in weight_names]
+    exists = [os.path.isfile(weight) for weight in weight_paths]
     assert all(exists), "weights do not exist: %s" % ", ".join(
-        weight for (weight, exist) in zip(weight_names, exists) if not exist)
+        weight_path for (weight_path, exist) in zip(weight_paths, exists) if not exist)

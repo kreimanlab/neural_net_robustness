@@ -7,7 +7,7 @@ import random
 import h5py
 import numpy as np
 
-from weights import load_weights, proportion_different
+from weights import load_weights, proportion_different, validate_weights
 
 
 def __dump_weights_to_hdf5(weights, filepath):
@@ -37,10 +37,13 @@ def __draw(x, proportion):
     x_prime[indices] = random.sample(list(x_prime), num_elements)
     return x_prime.reshape(x.shape)
 
+
 def __mutateGaussian(x, proportion):
-    # Note: proportion is used in a different context than in __draw, but is still the primary parameter of weight pertubtations
-    # It would help clarity of arg names to use differnet names for the different uses, but this was omitted for sake of succinctness
-    return x + np.random.normal(loc=0.0, scale=proportion*np.std(x),size=x.shape)
+    # Note: proportion is used in a different context than in __draw,
+    # but is still the primary parameter of weight pertubtations
+    # It would help clarity of arg names to use differnet names for the different uses,
+    # but this was omitted for sake of succinctness.
+    return x + np.random.normal(loc=0.0, scale=proportion * np.std(x), size=x.shape)
 
 
 def __merge_sub_weights(weights, layer):
@@ -90,10 +93,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Weight Perturbation')
     parser.add_argument('--weights', type=str, nargs='+', default=['alexnet'],
                         help='The weights to perturb')
+    parser.add_argument('--weights_directory', type=str, default='weights',
+                        help='The directory in which the weights are stored in')
     parser.add_argument('--layer', type=str, nargs='+', default=['conv_1'],
                         help='In what layer(s) to perturb the weights')
     parser.add_argument('--perturbation', type=str, nargs='+', default=[next(perturbations.__iter__())],
-                        help='How to perturb the weights')
+                        help='How to perturb the weights', choices=perturbations.keys())
     parser.add_argument('--proportion', type=float, nargs='+', default=[.1],
                         help='In draw: what proportion(s) of the weights to perturb; \
                               In mutateGaussian: the number of proportion of the standard distribution(s) of the current weights to use as the standard distrbution of the weight perturbations(s)')
@@ -101,7 +106,8 @@ if __name__ == '__main__':
                         help='How often to perturb the weights in different variations')
     args = parser.parse_args()
     print('Running with args', args)
-    weights = load_weights(*args.weights, keep_names=True)
+    validate_weights(args.weights, args.weights_directory)
+    weights = load_weights(*args.weights, keep_names=True, weights_directory=args.weights_directory)
     random.seed(0)
     # perturb
     for weight_name, weight_values in weights.items():
@@ -116,7 +122,7 @@ if __name__ == '__main__':
                         perturbed_weights = copy.deepcopy(weight_values)
                         __perturb_all(perturbed_weights, layer, functools.partial(perturb, proportion=proportion))
                         assert proportion_different(weight_values, perturbed_weights) > 0, "No weights changed"
-                        save_filepath = 'weights/perturbations/%s-%s-%s%.2f-num%d.h5' % \
-                                        (weight_name, layer, perturbation_name, proportion, nth_perturbation)
+                        save_filepath = '%s/perturbations/%s-%s-%s%.2f-num%d.h5' % (
+                            args.weights_directory, weight_name, layer, perturbation_name, proportion, nth_perturbation)
                         __dump_weights_to_hdf5(perturbed_weights, save_filepath)
                         print('Saved to %s' % save_filepath)
