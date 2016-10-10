@@ -55,7 +55,7 @@ def __merge_sub_weights(weights, layer):
     return {layer + '_W': np.array(W), layer + '_b': np.array(b)}
 
 
-def __divide_sub_weights(target_weights, source_weights):
+def __divide_sub_weights(target_weights, source_weights, layer):
     for weights_name in target_weights:
         if weights_name.startswith(layer) and weights_name != layer:
             num = int(weights_name.split('_')[-1]) - 1
@@ -83,10 +83,10 @@ def __perturb_all(weights, layer, perturb_func):
     if weights[layer]:  # no sub-weights
         weights[layer] = perturbed_weights
     else:  # has sub-weights
-        __divide_sub_weights(weights, perturbed_weights)
+        __divide_sub_weights(weights, perturbed_weights, layer)
 
 
-if __name__ == '__main__':
+def main():
     # options
     perturbations = {'draw': __draw, 'mutateGaussian': __mutateGaussian}
     # params - command line
@@ -99,9 +99,10 @@ if __name__ == '__main__':
                         help='In what layer(s) to perturb the weights')
     parser.add_argument('--perturbation', type=str, nargs='+', default=[next(perturbations.__iter__())],
                         help='How to perturb the weights', choices=perturbations.keys())
-    parser.add_argument('--proportion', type=float, nargs='+', default=[.1],
-                        help='In draw: what proportion(s) of the weights to perturb; \
-                              In mutateGaussian: the number of proportion of the standard distribution(s) of the current weights to use as the standard distrbution of the weight perturbations(s)')
+    parser.add_argument('--proportion', type=float, nargs='+', default=np.arange(0.1, 0.6, 0.1),
+                        help='In draw: what proportion(s) of the weights to perturb; '
+                             'In mutateGaussian: the number of proportion of the standard distribution(s) '
+                             'of the current weights to use as the standard distrbution of the weight perturbations(s)')
     parser.add_argument('--num_perturbations', type=int, default=1,
                         help='How often to perturb the weights in different variations')
     args = parser.parse_args()
@@ -126,3 +127,7 @@ if __name__ == '__main__':
                             args.weights_directory, weight_name, layer, perturbation_name, proportion, nth_perturbation)
                         __dump_weights_to_hdf5(perturbed_weights, save_filepath)
                         print('Saved to %s' % save_filepath)
+
+
+if __name__ == '__main__':
+    main()
