@@ -1,8 +1,6 @@
-import pickle
 import argparse
-import itertools
 import os
-from collections import OrderedDict
+import pickle
 
 import numpy as np
 from matplotlib import pyplot
@@ -11,23 +9,35 @@ from results import get_results_filepath
 from weights import load_weights, walk, walk_key_chain
 
 
-def __get_weights_diff(weights1, weights2):
+def _get_weights_diff(weights1, weights2):
     return walk(weights1, collect=lambda key_chain, w1: w1 - walk_key_chain(weights2, key_chain))
 
 
-def __relativize(weights):
-    return walk(weights, collect=lambda _, x: x / x.size)
+def _relativize(weights, base_weights):
+    return walk(weights, collect=lambda key_chain, x: x / np.absolute(walk_key_chain(base_weights, key_chain)).sum())
 
 
-def __absolute_sum(weights):
-    return walk(weights, collect=lambda _, x: np.absolute(x).sum())
+def _absolute(weights):
+    return walk(weights, collect=lambda _, x: np.absolute(x))
 
 
-def __plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
+def _means(weights):
+    return walk(weights, collect=lambda _, x: np.mean(x))
+
+
+def _stds(weights):
+    return walk(weights, collect=lambda _, x: np.std(x))
+
+
+def _sum(weights):
+    return walk(weights, collect=lambda _, x: np.sum(x))
+
+
+def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
     pyplot.bar(x, y, **kwargs)
     pyplot.ylabel(ylabel)
     if xticks is not None:
-        pyplot.xticks(x, xticks, rotation=45, ha='center')
+        pyplot.xticks(x, xticks, rotation=90, ha='left')
     if save_filepath is not None:
         os.makedirs(os.path.dirname(save_filepath), exist_ok=True)
         pyplot.savefig(save_filepath, bbox_inches='tight')
@@ -36,14 +46,18 @@ def __plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
         pyplot.show()
 
 
-def __plot_metrics(metric_means, metric_errs, save_filepath, xticks=None):
-    for metric_name in metric_means:
-        __plot_bar(range(1, len(metric_means[metric_name]) + 1), metric_means[metric_name],
-                   save_filepath=save_filepath,
-                   yerr=metric_errs[metric_name], xticks=xticks, ylabel=metric_name)
+def _z_score(weight_values, weight_means, weight_stds):
+    def z_score(key_chain, values):
+        mean = walk_key_chain(weight_means, key_chain)
+        assert np.isscalar(mean)
+        std = walk_key_chain(weight_stds, key_chain)
+        assert np.isscalar(std)
+        return (values - mean) / std
+
+    return walk(weight_values, collect=z_score)
 
 
-def __plot_weight_metric(weights_metric, figure_filename, ylabel=None):
+def _plot_weight_metric(weights_metric, figure_filename, ylabel=None):
     keys = []
     values = []
 
@@ -54,30 +68,34 @@ def __plot_weight_metric(weights_metric, figure_filename, ylabel=None):
     walk(weights_metric, collect_values)
     keys, values = tuple(zip(*sorted(zip(keys, values))))
     key_indices = range(len(keys))
-    __plot_bar(key_indices, values, xticks=keys, ylabel=ylabel, save_filepath=figure_filename)
+    _plot_bar(key_indices, values, xticks=keys, ylabel=ylabel, save_filepath=figure_filename)
 
 
-def __plot_num_weights(weights):
+def _plot_num_weights(weights):
     for weights_name, weights_values in weights.items():
         num_weights = walk(weights_values, collect=lambda _, x: x.size)
-        __plot_weight_metric(num_weights, "figures/num_weights/%s.pdf" % weights_name)
+        _plot_weight_metric(num_weights, "figures/num_weights/%s.pdf" % weights_name)
 
 
-def __plot_weights_diffs(weights):
+def _plot_weights_diffs(weights):
     assert len(weights) >= 2, "Need at least two weights to compare"
     # find pairs
-    combinations = map(OrderedDict, itertools.combinations(weights.items(), 2))
-    for w1_name, w2_name in combinations:
+    base_weight = next(weights.keys().__iter__())
+    compare_weights = weights.keys() - [base_weight]
+    for compare_name in compare_weights:
         # compute differences
-        weights_diffs = __get_weights_diff(weights[w1_name], weights[w2_name])
-        relative_total_diffs = __absolute_sum(__relativize(weights_diffs))
+        weights_diffs = _get_weights_diff(weights[base_weight], weights[compare_name])
+        z_scored_diffs = _absolute(_z_score(_absolute(weights_diffs),
+                                            _means(_absolute(weights[base_weight])),
+                                            _stds(_absolute(weights[base_weight]))))
+        z_scored_sums = _sum(z_scored_diffs)
         # plot
-        __plot_weight_metric(relative_total_diffs,
-                             "figures/weight_diffs/%s-vs-%s.pdf" % (w1_name, w2_name),
-                             ylabel='Relative absolute diffs')
+        _plot_weight_metric(z_scored_sums, "figures/weight_diffs/%s-vs-%s.pdf" % (base_weight, compare_name),
+                            ylabel=r'z-scored diffs $\sum_{w=1}^{num weights^{layer}} '
+                                   r'|\frac{|weights_w^{layer}| - mean(|weights^{layer}|}{std(|weights^{layer}|)}|$')
 
 
-def __get_results(dataset, weights_name):
+def _get_results(dataset, weights_name):
     results_filepaths, _ = get_results_filepath(dataset, weights_name, variations=True)
     metrics = []
     for filepath in results_filepaths:
@@ -87,7 +105,7 @@ def __get_results(dataset, weights_name):
     return metrics
 
 
-def __append_metrics(metric_means, metric_errs, metrics, metric_name):
+def _append_metrics(metric_means, metric_errs, metrics, metric_name):
     if metric_name not in metric_means:
         metric_means[metric_name] = []
         metric_errs[metric_name] = []
@@ -97,40 +115,26 @@ def __append_metrics(metric_means, metric_errs, metrics, metric_name):
     metric_errs[metric_name].append(err)
 
 
-def __plot_performances_by_weights(weights, datasets, metric_names):
-    for weights_name in weights:
-        metric_means = {}
-        metric_errs = {}
-        for dataset in datasets:
-            metrics = __get_results(dataset, weights_name)
-            for metric_name in metric_names:
-                __append_metrics(metric_means, metric_errs, metrics, metric_name)
-        save_filepath = "figures/performance_by_weights/%s.pdf" % weights_name
-        __plot_metrics(metric_means, metric_errs, save_filepath, xticks=[d for d in datasets])
-
-
-def __plot_performances_by_datasets(weights, datasets, metric_names):
+def _plot_performances_by_datasets(weights, datasets, metric_names):
     for dataset in datasets:
         metric_means = {}
         metric_errs = {}
         for weights_name in weights:
-            metrics = __get_results(dataset, weights_name)
+            metrics = _get_results(dataset, weights_name)
             for metric_name in metric_names:
-                __append_metrics(metric_means, metric_errs, metrics, metric_name)
-        save_filepath = "figures/performance_by_dataset/%s.pdf" % dataset
-        __plot_metrics(metric_means, metric_errs, save_filepath, xticks=[w for w in weights])
+                _append_metrics(metric_means, metric_errs, metrics, metric_name)
+        for metric_name in metric_means:
+            save_filepath = "figures/performance_by_dataset/%s-%s.pdf" % (dataset, metric_name)
+            _plot_bar(range(1, len(metric_means[metric_name]) + 1), metric_means[metric_name],
+                      save_filepath=save_filepath,
+                      yerr=metric_errs[metric_name], xticks=[w for w in weights], ylabel=metric_name)
 
 
-def __plot_performances(weights, datasets, metrics):
-    __plot_performances_by_weights(weights, datasets, metrics)
-    __plot_performances_by_datasets(weights, datasets, metrics)
-
-
-if __name__ == '__main__':
+def main():
     # options
-    tasks = {'num_weights': lambda weights, d, m: __plot_num_weights(weights),
-             'weight_diffs': lambda weights, d, m: __plot_weights_diffs(weights),
-             'performance': __plot_performances}
+    tasks = {'num_weights': lambda weights, d, m: _plot_num_weights(weights),
+             'weight_diffs': lambda weights, d, m: _plot_weights_diffs(weights),
+             'performance': _plot_performances_by_datasets}
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Plot')
     parser.add_argument('task', type=str, choices=tasks.keys())
@@ -138,10 +142,14 @@ if __name__ == '__main__':
                         help='The set of weights to compare with each other')
     parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
                         help='The datasets to compare the evaluations on')
-    parser.add_argument('--metrics', type=str, nargs='+', default=['top5error'],
+    parser.add_argument('--metrics', type=str, nargs='+', default=['top5error', 'top1error'],
                         help='The metrics to use for performance')
     args = parser.parse_args()
     print('Running plot with args', args)
     weights = args.weights if args.task == 'performance' else load_weights(*args.weights, keep_names=True)
     task = tasks[args.task]
     task(weights, args.datasets, args.metrics)
+
+
+if __name__ == '__main__':
+    main()
