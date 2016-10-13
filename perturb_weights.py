@@ -3,6 +3,7 @@ import copy
 import functools
 import math
 import random
+from collections import OrderedDict
 
 import h5py
 import numpy as np
@@ -75,13 +76,14 @@ def __perturb_all(weights, layer, perturb_func):
     if not layer_weights:  # sub-weights
         layer_weights = __merge_sub_weights(weights, layer)
 
-    perturbed_weights = {}
+    perturbed_weights = OrderedDict()
     for weight_name, weight_values in layer_weights.items():
         # we want to change W and b separately because their distributions can be vastly different
         perturbed_weights[weight_name] = perturb_func(weight_values)
 
     if weights[layer]:  # no sub-weights
-        weights[layer] = perturbed_weights
+        for weight_name in weights[layer]:  # assign directly to avoid any dict-reordering
+            weights[layer][weight_name] = perturbed_weights[weight_name]
     else:  # has sub-weights
         __divide_sub_weights(weights, perturbed_weights, layer)
 
