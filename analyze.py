@@ -8,20 +8,21 @@ import sys
 from datasets import get_data, validate_datasets
 from predictions import get_predictions_filepath
 from results import get_results_filepath
+from weights import proportion_different, load_weights, get_weights_filepath, walk
 
 
-def __argmax_n(a, n):
+def _argmax_n(a, n):
     ind = np.argpartition(a, -n)[-n:]
     ind = ind[np.argsort(a[ind])]
     return ind
 
 
-def __top5(softmax):
+def _top5(softmax):
     # TODO: we need to evaluate this with a SVM to get rid of errors due to re-ordering of labels
-    return np.array([__argmax_n(s, 5) for s in softmax])
+    return np.array([_argmax_n(s, 5) for s in softmax])
 
 
-def __top1(softmax):
+def _top1(softmax):
     return np.array([np.argmax(s) for s in softmax])
 
 
@@ -40,7 +41,7 @@ def error(actual, predicted):
     return 1 - performance(actual, predicted)
 
 
-def __get_predictions(dataset, weights_name, predictions_directory):
+def _get_predictions(dataset, weights_name, predictions_directory):
     results_filepaths, nums = get_predictions_filepath(dataset, weights_name,
                                                        variations=True, predictions_directory=predictions_directory)
     predictions, nums_dict = {}, {}
@@ -52,56 +53,111 @@ def __get_predictions(dataset, weights_name, predictions_directory):
     return predictions, nums_dict
 
 
-def __evaluate_metric(metric, predictions, truths_mapping):
+def _evaluate_metric(metric, predictions, truths_mapping):
     truths, predictions = zip(*[(truths_mapping[image_path], prediction)
                                 for image_path, prediction in predictions.items()])
     return metric(truths, predictions)
 
 
-def __analyze(weights, datasets_directory, datasets, metrics, predictions_directory="predictions"):
+def _merge_previous_results(results, results_filepath):
+    if os.path.isfile(results_filepath):
+        print("Merging with previous results")
+        previous_results = pickle.load(open(results_filepath, 'rb'))
+        merged_results = previous_results
+        merged_results.update(results)
+        results = merged_results
+    return results
+
+
+def _get_proportion_different(base_weights, weights):
+    """
+    Find layer where the proportion difference is > 0 and return that.
+    """
+    proportions_different = proportion_different(base_weights, weights)
+    nonzero_layer_names = []
+    layer_proportions = []  # collect two proportions: one for the weights, one for the biases
+
+    def collect_proportion(key_chain, p):
+        if p == 0:
+            return
+        nonlocal nonzero_layer_names, layer_proportions
+        nonzero_layer_names.append(key_chain[0])
+        layer_proportions.append(p)
+
+    walk(proportions_different, collect=collect_proportion)
+    if len(layer_proportions) == 0: # nothing changed
+        return 0
+    # make sure that proportions come from the same layer
+    # and weights and biases as well as separate streams have similar proportions
+    assert any(char.isdigit() for char in os.path.commonprefix(nonzero_layer_names)), \
+        'weight differences come from different layers: ' + ", ".join(nonzero_layer_names)  # layer number present
+    assert len(layer_proportions) % 2 == 0
+    assert np.std(layer_proportions) < 0.1
+    return np.mean(layer_proportions)
+
+
+def _analyze(weights, datasets_directory, datasets, metrics, base_weights=None,
+             weights_directory="weights", predictions_directory="predictions"):
     for dataset in datasets:
         truths_mapping = get_data(dataset, datasets_directory)
         for weights_name in weights:
-            nummed_predictions, nums = __get_predictions(dataset, weights_name, predictions_directory)
+            nummed_predictions, nums = _get_predictions(dataset, weights_name, predictions_directory)
             for prediction_filepath, prediction in nummed_predictions.items():
                 print("Analyzing %s..." % prediction_filepath, end='')
+                output = {'dataset': dataset, 'weights': weights_name}
+                variation = nums[prediction_filepath] if nums[prediction_filepath] is not None else False
                 results = {}
                 for metric_name, metric in metrics.items():
                     print(" %s" % metric_name, end='')
                     sys.stdout.flush()
-                    results[metric_name] = __evaluate_metric(metric, prediction, truths_mapping)
+                    results[metric_name] = _evaluate_metric(metric, prediction, truths_mapping)
                 print()
+                if base_weights is not None:
+                    weights_file = get_weights_filepath(weights_name, variations=variation,
+                                                        weights_directory=weights_directory)
+                    perturbation_proportion = _get_proportion_different(base_weights, load_weights(
+                        weights_file, weights_directory=weights_directory))
+                    output['perturbation_proportion'] = perturbation_proportion
 
-                results_filepath = get_results_filepath(dataset, weights_name, nums[prediction_filepath])
-                if os.path.isfile(results_filepath):
-                    print("Merging with previous results")
-                    previous_results = pickle.load(open(results_filepath, 'rb'))
-                    merged_results = previous_results['results']
-                    merged_results.update(results)
-                    results = merged_results
+                results_filepath = get_results_filepath(dataset, weights_name, variations=variation)
+                results = _merge_previous_results(results, results_filepath)
                 print("Writing results to %s" % results_filepath)
-                pickle.dump({'results': results, 'dataset': dataset, 'weights': weights_name},
-                            open(results_filepath, 'wb'))
+                output = {**results, **output}
+                pickle.dump(output, open(results_filepath, 'wb'))
 
 
-if __name__ == '__main__':
+def main():
     # options
-    metrics = {'top5error': lambda actual, predicted: error(actual, __top5(predicted)),
-               'top1error': lambda actual, predicted: error(actual, __top1(predicted))}
+    metrics = {'top5error': lambda actual, predicted: error(actual, _top5(predicted)),
+               'top1error': lambda actual, predicted: error(actual, _top1(predicted)),
+               'top5performance': lambda actual, predicted: performance(actual, _top5(predicted)),
+               'top1performance': lambda actual, predicted: performance(actual, _top1(predicted))
+               }
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Analysis')
     parser.add_argument('--weights', type=str, nargs='+', default=["alexnet"],
                         help='The set of weights to compare with each other')
+    parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
+                        help='The datasets to compare the evaluations on')
+    parser.add_argument('--metrics', type=str, nargs='+', default=metrics.keys(),
+                        choices=metrics.keys(), help='The metrics to use for performance')
+    parser.add_argument('--base_weights', type=str, default="alexnet",
+                        help='The weights to compare perturbations with')
+    parser.add_argument('--weights_directory', type=str, default='weights',
+                        help='The directory all weights are stored in')
     parser.add_argument('--datasets_directory', type=str, default='datasets',
                         help='The directory all datasets are stored in')
     parser.add_argument('--predictions_directory', type=str, default='predictions',
                         help='The directory all predictions are stored in')
-    parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
-                        help='The datasets to compare the evaluations on')
-    parser.add_argument('--metrics', type=str, nargs='+', default=[m for m in metrics],
-                        choices=metrics.keys(), help='The metrics to use for performance')
     args = parser.parse_args()
     print('Running analysis with args', args)
     validate_datasets(args.datasets, args.datasets_directory)
+    base_weights = load_weights(args.base_weights, weights_directory=args.weights_directory) \
+        if args.base_weights is not None else None
     metrics = dict((metric, metrics[metric]) for metric in args.metrics)
-    __analyze(args.weights, args.datasets_directory, args.datasets, metrics, args.predictions_directory)
+    _analyze(args.weights, args.datasets_directory, args.datasets, metrics, base_weights,
+             weights_directory=args.weights_directory, predictions_directory=args.predictions_directory)
+
+
+if __name__ == '__main__':
+    main()

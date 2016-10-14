@@ -1,12 +1,13 @@
 import argparse
 import os
 import pickle
+from collections import defaultdict
 
 import numpy as np
 from matplotlib import pyplot
 
 from results import get_results_filepath
-from weights import load_weights, walk, walk_key_chain
+from weights import load_weights, walk, walk_key_chain, has_sub_layers, merge_sub_layers
 
 
 def _get_weights_diff(weights1, weights2):
@@ -33,6 +34,17 @@ def _sum(weights):
     return walk(weights, collect=lambda _, x: np.sum(x))
 
 
+def _z_score(weight_values, weight_means, weight_stds):
+    def z_score(key_chain, values):
+        mean = walk_key_chain(weight_means, key_chain)
+        assert np.isscalar(mean)
+        std = walk_key_chain(weight_stds, key_chain)
+        assert np.isscalar(std)
+        return (values - mean) / std
+
+    return walk(weight_values, collect=z_score)
+
+
 def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
     pyplot.bar(x, y, **kwargs)
     pyplot.ylabel(ylabel)
@@ -46,15 +58,11 @@ def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
         pyplot.show()
 
 
-def _z_score(weight_values, weight_means, weight_stds):
-    def z_score(key_chain, values):
-        mean = walk_key_chain(weight_means, key_chain)
-        assert np.isscalar(mean)
-        std = walk_key_chain(weight_stds, key_chain)
-        assert np.isscalar(std)
-        return (values - mean) / std
-
-    return walk(weight_values, collect=z_score)
+def _sorted_legend(ax):
+    handles, labels = ax.get_legend_handles_labels()
+    # sort both labels and handles by labels
+    labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
+    ax.legend(handles, labels)
 
 
 def _plot_weight_metric(weights_metric, figure_filename, ylabel=None):
@@ -77,6 +85,55 @@ def _plot_num_weights(weights):
         _plot_weight_metric(num_weights, "figures/num_weights/%s.pdf" % weights_name)
 
 
+def _summed_absolute_zscore(weights, base_weights, weights_name, base_weights_name):
+    weights_diffs = _get_weights_diff(base_weights, weights)
+    z_scored_diffs = _absolute(_z_score(_absolute(weights_diffs),
+                                        _means(_absolute(base_weights)),
+                                        _stds(_absolute(base_weights))))
+    summed_z_scores = _sum(z_scored_diffs)
+
+    _plot_weight_metric(summed_z_scores, "figures/weight_diffs/%s-vs-%s-zscore.pdf" % (
+        base_weights_name, weights_name.replace('/', '_')),
+                        ylabel='summed z-scores of differences')
+
+
+def _relativized_diffs(weights, base_weights, weights_name, base_weights_name):
+    weights_diffs = _get_weights_diff(base_weights, weights)
+    relativized_diffs = walk(weights_diffs, collect=lambda key_chain, diffs:
+    diffs / walk_key_chain(base_weights, key_chain))
+    relativized_absolute_summed_diffs = _sum(_absolute(relativized_diffs))
+
+    _plot_weight_metric(relativized_absolute_summed_diffs, "figures/weight_diffs/%s-vs-%s-diff_by_basesum.pdf" % (
+        base_weights_name, weights_name.replace('/', '_')),
+                        ylabel='differences relativized to sum of base weights')
+
+
+def _hist(weights, base_weights, weights_name, base_weights_name):
+    for layer, layer_weights in weights.items():
+        if not layer_weights and not has_sub_layers(weights, layer):
+            continue
+        if has_sub_layers(weights, layer):
+            layer_weights = merge_sub_layers(weights, layer)
+            base_layer_weights = merge_sub_layers(base_weights, layer)
+        else:
+            base_layer_weights = base_weights[layer]
+        layer_weights = np.concatenate([v.flatten() for v in layer_weights.values()])
+        base_layer_weights = np.concatenate([v.flatten() for v in base_layer_weights.values()])
+        assert base_layer_weights.shape == layer_weights.shape
+
+        bins = min(100, int(np.ceil(np.sqrt(layer_weights.size))))
+        fig, ax = pyplot.subplots()
+        ax.set_yscale('log')
+        ax.hist(base_layer_weights.flatten(), bins, alpha=0.5, label=base_weights_name)
+        ax.hist(layer_weights.flatten(), bins, alpha=0.5, label=weights_name)
+        ax.set_ylim(ax.get_ylim() * np.array([1, 10]))
+        ax.legend()
+        save_filepath = "figures/weight_hists/%s-vs-%s--%s.pdf" % (
+            base_weights_name, weights_name.replace('/', '_'), layer)
+        pyplot.savefig(save_filepath, bbox_inches='tight')
+        pyplot.close(fig)
+
+
 def _plot_weights_diffs(weights):
     assert len(weights) >= 2, "Need at least two weights to compare"
     # find pairs
@@ -84,50 +141,71 @@ def _plot_weights_diffs(weights):
     compare_weights = weights.keys() - [base_weight]
     for compare_name in compare_weights:
         # compute differences
-        weights_diffs = _get_weights_diff(weights[base_weight], weights[compare_name])
-        z_scored_diffs = _absolute(_z_score(_absolute(weights_diffs),
-                                            _means(_absolute(weights[base_weight])),
-                                            _stds(_absolute(weights[base_weight]))))
-        z_scored_sums = _sum(z_scored_diffs)
-        # plot
-        _plot_weight_metric(z_scored_sums, "figures/weight_diffs/%s-vs-%s.pdf" % (base_weight, compare_name),
-                            ylabel=r'z-scored diffs $\sum_{w=1}^{num weights^{layer}} '
-                                   r'|\frac{|weights_w^{layer}| - mean(|weights^{layer}|}{std(|weights^{layer}|)}|$')
+        for metric in [_hist, _summed_absolute_zscore, _relativized_diffs]:
+            metric(weights[compare_name], weights[base_weight], compare_name, base_weight)
 
 
 def _get_results(dataset, weights_name):
     results_filepaths, _ = get_results_filepath(dataset, weights_name, variations=True)
-    metrics = []
+    assert results_filepaths, "no result files found for dataset %s and weights %s" % (dataset, weights_name)
+    metrics = defaultdict(list)
     for filepath in results_filepaths:
         with open(filepath, 'rb') as results_file:
             results = pickle.load(results_file)
-        metrics.append(results['results'])
+        for key in results:
+            if type(results[key]) is not dict:
+                metrics[key].append(results[key])
+            else:
+                if key not in metrics:
+                    metrics[key] = defaultdict(list)
+                for subkey in results[key]:
+                    metrics[key][subkey].append(results[key][subkey])
+    assert metrics, "no metrics found in %s" % ",".join(results_filepaths)
     return metrics
 
 
-def _append_metrics(metric_means, metric_errs, metrics, metric_name):
-    if metric_name not in metric_means:
-        metric_means[metric_name] = []
-        metric_errs[metric_name] = []
-    metrics = [metric[metric_name] for metric in metrics] if isinstance(metrics, list) else metrics[metric_name]
-    mean, err = np.mean(metrics), np.std(metrics)
-    metric_means[metric_name].append(mean)
-    metric_errs[metric_name].append(err)
+def _collect_layer_performances(dataset, weight_names, metric_name):
+    layer_metrics = defaultdict(lambda: defaultdict(list))
+    for weights_name in weight_names:
+        if weights_name.count('-') == 2:  # layer perturbation
+            model, layer, perturbation = weights_name.split('-')
+        else:  # no perturbation
+            model, layer, perturbation = weights_name, 'none', 'none'
+        results = _get_results(dataset, weights_name)
+        perturbation_proportion = np.mean(results['perturbation_proportion'])
+        metrics = results['results'][metric_name]
+        layer_metrics[layer][perturbation_proportion] += metrics
+
+    layer_means = defaultdict(dict)
+    layer_errs = defaultdict(dict)
+    for layer in layer_metrics:
+        for proportion in layer_metrics[layer]:
+            layer_means[layer][proportion] = np.mean(layer_metrics[layer][proportion])
+            layer_errs[layer][proportion] = np.std(layer_metrics[layer][proportion])
+    return layer_means, layer_errs
 
 
-def _plot_performances_by_datasets(weights, datasets, metric_names):
+def _plot_performances_by_datasets(weight_names, datasets, metric_names):
     for dataset in datasets:
-        metric_means = {}
-        metric_errs = {}
-        for weights_name in weights:
-            metrics = _get_results(dataset, weights_name)
-            for metric_name in metric_names:
-                _append_metrics(metric_means, metric_errs, metrics, metric_name)
-        for metric_name in metric_means:
+        for metric_name in metric_names:
+            layer_means, layer_errs = _collect_layer_performances(dataset, weight_names, metric_name)
+            fig, ax = pyplot.subplots()
+            ax.set_xlabel('proportion of changed weights')
+            ax.set_ylabel(metric_name)
+            for layer in layer_means:
+                x = list(layer_means[layer].keys())
+                y = list(layer_means[layer].values())
+                err = list(layer_errs[layer].values())
+                x, y, err = zip(*[(x_, y_, e_) for (x_, y_, e_) in sorted(zip(x, y, err))])
+                if len(x) > 1:  # multiple measurements
+                    ax.errorbar(x, y, yerr=err, label=layer)
+                else:  # single measurement
+                    ax.errorbar(x, y, yerr=err, label=layer, marker='o')
+            _sorted_legend(ax)
             save_filepath = "figures/performance_by_dataset/%s-%s.pdf" % (dataset, metric_name)
-            _plot_bar(range(1, len(metric_means[metric_name]) + 1), metric_means[metric_name],
-                      save_filepath=save_filepath,
-                      yerr=metric_errs[metric_name], xticks=[w for w in weights], ylabel=metric_name)
+            print('Saving to %s...' % save_filepath)
+            fig.savefig(save_filepath, bbox_inches='tight')
+            pyplot.close(fig)
 
 
 def main():
@@ -142,7 +220,8 @@ def main():
                         help='The set of weights to compare with each other')
     parser.add_argument('--datasets', type=str, nargs='+', default=['ILSVRC2012/val'],
                         help='The datasets to compare the evaluations on')
-    parser.add_argument('--metrics', type=str, nargs='+', default=['top5error', 'top1error'],
+    parser.add_argument('--metrics', type=str, nargs='+',
+                        default=['top5error', 'top1error', 'top5performance', 'top1performance'],
                         help='The metrics to use for performance')
     args = parser.parse_args()
     print('Running plot with args', args)
