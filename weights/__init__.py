@@ -5,11 +5,17 @@ from functools import reduce
 import h5py
 import numpy as np
 
+from predictions import get_files
+
+
+def get_weights_filepath(weights_name, variations=False, weights_directory='weights'):
+    return get_files(weights_name + ".h5", variations=variations, directory=weights_directory)
+
 
 def load_weights(*weights_names, keep_names=False, weights_directory='weights'):
     weights = list()
     for weights_name in weights_names:
-        filepath = "%s/%s.h5" % (weights_directory, weights_name)
+        filepath = "%s/%s%s" % (weights_directory, weights_name, '.h5' if not weights_name.endswith('.h5') else '')
         with h5py.File(filepath, 'r') as file:
             w = walk(file, lambda _, x: np.array(x))
             weights.append(w)
@@ -48,24 +54,30 @@ def walk_key_chain(dictionary, key_chain):
     return reduce(lambda d, k: d[k], key_chain, dictionary)
 
 
-def proportion_different(weights1, weights2):
+def proportion_different(weights1, weights2, mean_across_layers=False):
     """
     Returns the number of weights that changed across all layers
     divided by the total number of weights across all layers.
     """
     assert weights1.keys() == weights2.keys()
-    num_weights = 0
-    num_weights_changed = 0
 
-    def count_weights(key_chain, w1):
+    def collect_proportion_different(key_chain, w1):
         w2 = walk_key_chain(weights2, key_chain)
         assert w2.size == w1.size
-        nonlocal num_weights, num_weights_changed
-        num_weights += w1.size
-        num_weights_changed += (w1 != w2).sum()
+        return (w1 != w2).sum() / w1.size
 
-    walk(weights1, collect=count_weights)
-    return num_weights_changed / num_weights
+    proportions_per_layer = walk(weights1, collect=collect_proportion_different)
+    if not mean_across_layers:
+        return proportions_per_layer
+
+    proportions = []
+
+    def collect_proportions(_, proportion):
+        nonlocal proportions
+        proportions.append(proportion)
+
+    walk(proportions_per_layer, collect=collect_proportions)
+    return np.mean(proportions)
 
 
 def validate_weights(weight_names, weights_directory="weights"):
@@ -73,3 +85,20 @@ def validate_weights(weight_names, weights_directory="weights"):
     exists = [os.path.isfile(weight) for weight in weight_paths]
     assert all(exists), "weights do not exist: %s" % ", ".join(
         weight_path for (weight_path, exist) in zip(weight_paths, exists) if not exist)
+
+
+def _is_sub_layer(layer, parent_layer):
+    return layer.startswith(parent_layer) and layer != parent_layer
+
+
+def has_sub_layers(weights, layer):
+    return any(_is_sub_layer(weights_name, layer) for weights_name in weights)
+
+
+def merge_sub_layers(weights, layer):
+    W, b = [], []
+    for weights_name, weight_values in weights.items():
+        if _is_sub_layer(weights_name, layer):
+            W.append(weights[weights_name][weights_name + '_W'])
+            b.append(weights[weights_name][weights_name + '_b'])
+    return {layer + '_W': np.array(W), layer + '_b': np.array(b)}

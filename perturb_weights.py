@@ -8,10 +8,10 @@ from collections import OrderedDict
 import h5py
 import numpy as np
 
-from weights import load_weights, proportion_different, validate_weights
+from weights import load_weights, proportion_different, validate_weights, merge_sub_layers
 
 
-def __dump_weights_to_hdf5(weights, filepath):
+def __dump_weights_to_hdf5(weights, filepath, base_weights_name=None):
     """
     Save the given weights in HDF5 format so that they can be loaded by a model.
     Adopted from keras.engine.topology.Container#save_weights_to_hdf5_group
@@ -19,6 +19,8 @@ def __dump_weights_to_hdf5(weights, filepath):
     # We cannot use the Container save method directly since it uses the weights set in the backend.
     # We also cannot set the weights of the container since it expects a properly ordered numpy array.
     with h5py.File(filepath, 'w') as file:
+        if base_weights_name is not None:
+            file.attrs['base_weights'] = base_weights_name
         file.attrs['layer_names'] = [layer.encode('utf8') for layer in weights]
         for layer in weights:
             group = file.create_group(layer)
@@ -39,21 +41,12 @@ def __draw(x, proportion):
     return x_prime.reshape(x.shape)
 
 
-def __mutateGaussian(x, proportion):
+def __mutate_gaussian(x, proportion):
     # Note: proportion is used in a different context than in __draw,
-    # but is still the primary parameter of weight pertubtations
-    # It would help clarity of arg names to use differnet names for the different uses,
+    # but is still the primary parameter of weight perturbations
+    # It would help clarity of arg names to use different names for the different uses,
     # but this was omitted for sake of succinctness.
     return x + np.random.normal(loc=0.0, scale=proportion * np.std(x), size=x.shape)
-
-
-def __merge_sub_weights(weights, layer):
-    W, b = [], []
-    for weights_name, weight_values in weights.items():
-        if weights_name.startswith(layer) and weights_name != layer:
-            W.append(weights[weights_name][weights_name + '_W'])
-            b.append(weights[weights_name][weights_name + '_b'])
-    return {layer + '_W': np.array(W), layer + '_b': np.array(b)}
 
 
 def __divide_sub_weights(target_weights, source_weights, layer):
@@ -74,7 +67,7 @@ def __perturb_all(weights, layer, perturb_func):
     """
     layer_weights = weights[layer]
     if not layer_weights:  # sub-weights
-        layer_weights = __merge_sub_weights(weights, layer)
+        layer_weights = merge_sub_layers(weights, layer)
 
     perturbed_weights = OrderedDict()
     for weight_name, weight_values in layer_weights.items():
@@ -90,7 +83,7 @@ def __perturb_all(weights, layer, perturb_func):
 
 def main():
     # options
-    perturbations = {'draw': __draw, 'mutateGaussian': __mutateGaussian}
+    perturbations = {'draw': __draw, 'mutateGaussian': __mutate_gaussian}
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Weight Perturbation')
     parser.add_argument('--weights', type=str, nargs='+', default=['alexnet'],
@@ -124,10 +117,11 @@ def main():
                                args.num_perturbations))
                         perturbed_weights = copy.deepcopy(weight_values)
                         __perturb_all(perturbed_weights, layer, functools.partial(perturb, proportion=proportion))
-                        assert proportion_different(weight_values, perturbed_weights) > 0, "No weights changed"
+                        assert proportion_different(weight_values, perturbed_weights, mean_across_layers=True) > 0, \
+                            "No weights changed"
                         save_filepath = '%s/perturbations/%s-%s-%s%.2f-num%d.h5' % (
                             args.weights_directory, weight_name, layer, perturbation_name, proportion, nth_perturbation)
-                        __dump_weights_to_hdf5(perturbed_weights, save_filepath)
+                        __dump_weights_to_hdf5(perturbed_weights, save_filepath, base_weights_name=weight_name)
                         print('Saved to %s' % save_filepath)
 
 
