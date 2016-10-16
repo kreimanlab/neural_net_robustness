@@ -1,48 +1,16 @@
 import argparse
 import os
 import pickle
+import re
 from collections import defaultdict
 
 import numpy as np
 from matplotlib import pyplot
 
 from results import get_results_filepath
-from weights import load_weights, walk, walk_key_chain, has_sub_layers, merge_sub_layers
-
-
-def _get_weights_diff(weights1, weights2):
-    return walk(weights1, collect=lambda key_chain, w1: w1 - walk_key_chain(weights2, key_chain))
-
-
-def _relativize(weights, base_weights):
-    return walk(weights, collect=lambda key_chain, x: x / np.absolute(walk_key_chain(base_weights, key_chain)).sum())
-
-
-def _absolute(weights):
-    return walk(weights, collect=lambda _, x: np.absolute(x))
-
-
-def _means(weights):
-    return walk(weights, collect=lambda _, x: np.mean(x))
-
-
-def _stds(weights):
-    return walk(weights, collect=lambda _, x: np.std(x))
-
-
-def _sum(weights):
-    return walk(weights, collect=lambda _, x: np.sum(x))
-
-
-def _z_score(weight_values, weight_means, weight_stds):
-    def z_score(key_chain, values):
-        mean = walk_key_chain(weight_means, key_chain)
-        assert np.isscalar(mean)
-        std = walk_key_chain(weight_stds, key_chain)
-        assert np.isscalar(std)
-        return (values - mean) / std
-
-    return walk(weight_values, collect=z_score)
+from weights import load_weights, walk, has_sub_layers, merge_sub_layers
+from weights.analyze import weight_differences, absolute, means, stds, sum, max, \
+    z_score, summed_absolute_relative_diffs
 
 
 def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
@@ -86,11 +54,11 @@ def _plot_num_weights(weights):
 
 
 def _summed_absolute_zscore(weights, base_weights, weights_name, base_weights_name):
-    weights_diffs = _get_weights_diff(base_weights, weights)
-    z_scored_diffs = _absolute(_z_score(_absolute(weights_diffs),
-                                        _means(_absolute(base_weights)),
-                                        _stds(_absolute(base_weights))))
-    summed_z_scores = _sum(z_scored_diffs)
+    weights_diffs = weight_differences(base_weights, weights)
+    z_scored_diffs = absolute(z_score(absolute(weights_diffs),
+                                      means(absolute(base_weights)),
+                                      stds(absolute(base_weights))))
+    summed_z_scores = sum(z_scored_diffs)
 
     _plot_weight_metric(summed_z_scores, "figures/weight_diffs/%s-vs-%s-zscore.pdf" % (
         base_weights_name, weights_name.replace('/', '_')),
@@ -98,11 +66,7 @@ def _summed_absolute_zscore(weights, base_weights, weights_name, base_weights_na
 
 
 def _relativized_diffs(weights, base_weights, weights_name, base_weights_name):
-    weights_diffs = _get_weights_diff(base_weights, weights)
-    relativized_diffs = walk(weights_diffs, collect=lambda key_chain, diffs:
-    diffs / walk_key_chain(base_weights, key_chain))
-    relativized_absolute_summed_diffs = _sum(_absolute(relativized_diffs))
-
+    relativized_absolute_summed_diffs = summed_absolute_relative_diffs(weights, base_weights)
     _plot_weight_metric(relativized_absolute_summed_diffs, "figures/weight_diffs/%s-vs-%s-diff_by_basesum.pdf" % (
         base_weights_name, weights_name.replace('/', '_')),
                         ylabel='differences relativized to sum of base weights')
@@ -164,17 +128,30 @@ def _get_results(dataset, weights_name):
     return metrics
 
 
+def _get_x_value(results, perturbation_type):
+    if perturbation_type is None:
+        return 0
+    elif perturbation_type is 'draw':
+        return np.mean(results['perturbation_proportion'])
+    elif perturbation_type is 'mutateGaussian':
+        return max(results['summed_absolute_relative_weight_differences'])
+    else:
+        raise ValueError("Unknown perturbation type '%s'" % perturbation_type)
+
+
 def _collect_layer_performances(dataset, weight_names, metric_name):
     layer_metrics = defaultdict(lambda: defaultdict(list))
     for weights_name in weight_names:
         if weights_name.count('-') == 2:  # layer perturbation
             model, layer, perturbation = weights_name.split('-')
+            proportion_start = re.search("\d", perturbation).start()
+            perturbation = perturbation[:proportion_start]
         else:  # no perturbation
-            model, layer, perturbation = weights_name, 'none', 'none'
+            model, layer, perturbation = weights_name, None, None
         results = _get_results(dataset, weights_name)
-        perturbation_proportion = np.mean(results['perturbation_proportion'])
+        x = _get_x_value(results, perturbation)
         metrics = results['results'][metric_name]
-        layer_metrics[layer][perturbation_proportion] += metrics
+        layer_metrics[layer][x] += metrics
 
     layer_means = defaultdict(dict)
     layer_errs = defaultdict(dict)
@@ -223,9 +200,12 @@ def main():
     parser.add_argument('--metrics', type=str, nargs='+',
                         default=['top5error', 'top1error', 'top5performance', 'top1performance'],
                         help='The metrics to use for performance')
+    parser.add_argument('--weights_directory', type=str, default='weights',
+                        help='The directory in which the weights are stored in')
     args = parser.parse_args()
     print('Running plot with args', args)
-    weights = args.weights if args.task == 'performance' else load_weights(*args.weights, keep_names=True)
+    weights = args.weights if args.task == 'performance' \
+        else load_weights(*args.weights, keep_names=True, weights_directory=args.weights_directory)
     task = tasks[args.task]
     task(weights, args.datasets, args.metrics)
 

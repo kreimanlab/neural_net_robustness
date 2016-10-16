@@ -54,32 +54,6 @@ def walk_key_chain(dictionary, key_chain):
     return reduce(lambda d, k: d[k], key_chain, dictionary)
 
 
-def proportion_different(weights1, weights2, mean_across_layers=False):
-    """
-    Returns the number of weights that changed across all layers
-    divided by the total number of weights across all layers.
-    """
-    assert weights1.keys() == weights2.keys()
-
-    def collect_proportion_different(key_chain, w1):
-        w2 = walk_key_chain(weights2, key_chain)
-        assert w2.size == w1.size
-        return (w1 != w2).sum() / w1.size
-
-    proportions_per_layer = walk(weights1, collect=collect_proportion_different)
-    if not mean_across_layers:
-        return proportions_per_layer
-
-    proportions = []
-
-    def collect_proportions(_, proportion):
-        nonlocal proportions
-        proportions.append(proportion)
-
-    walk(proportions_per_layer, collect=collect_proportions)
-    return np.mean(proportions)
-
-
 def validate_weights(weight_names, weights_directory="weights"):
     weight_paths = [os.path.join(weights_directory, weight + ".h5") for weight in weight_names]
     exists = [os.path.isfile(weight) for weight in weight_paths]

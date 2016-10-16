@@ -3,7 +3,8 @@ import functools
 import unittest
 
 from perturb_weights import __perturb_all as perturb, __draw as draw
-from weights import load_weights, proportion_different
+from weights import load_weights
+from weights.analyze import proportion_different
 
 
 class PerturbAlexnetWeightsTests(unittest.TestCase):

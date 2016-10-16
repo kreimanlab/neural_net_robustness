@@ -1,14 +1,15 @@
-import os
 import argparse
+import os
 import pickle
+import sys
 
 import numpy as np
-import sys
 
 from datasets import get_data, validate_datasets
 from predictions import get_predictions_filepath
 from results import get_results_filepath
-from weights import proportion_different, load_weights, get_weights_filepath, walk
+from weights import load_weights, walk, get_weights_filepath
+from weights.analyze import proportion_different, relative_summed_absolute_diffs
 
 
 def _argmax_n(a, n):
@@ -69,7 +70,7 @@ def _merge_previous_results(results, results_filepath):
     return results
 
 
-def _get_proportion_different(base_weights, weights):
+def _layer_proportion_different(base_weights, weights):
     """
     Find layer where the proportion difference is > 0 and return that.
     """
@@ -85,7 +86,7 @@ def _get_proportion_different(base_weights, weights):
         layer_proportions.append(p)
 
     walk(proportions_different, collect=collect_proportion)
-    if len(layer_proportions) == 0: # nothing changed
+    if len(layer_proportions) == 0:  # nothing changed
         return 0
     # make sure that proportions come from the same layer
     # and weights and biases as well as separate streams have similar proportions
@@ -96,11 +97,11 @@ def _get_proportion_different(base_weights, weights):
     return np.mean(layer_proportions)
 
 
-def _analyze(weights, datasets_directory, datasets, metrics, base_weights=None,
-             weights_directory="weights", predictions_directory="predictions"):
+def _analyze(weight_names, datasets_directory, datasets, metrics, base_weights=None,
+             weights_directory='weights', predictions_directory='predictions'):
     for dataset in datasets:
         truths_mapping = get_data(dataset, datasets_directory)
-        for weights_name in weights:
+        for weights_name in weight_names:
             nummed_predictions, nums = _get_predictions(dataset, weights_name, predictions_directory)
             for prediction_filepath, prediction in nummed_predictions.items():
                 print("Analyzing %s..." % prediction_filepath, end='')
@@ -115,14 +116,19 @@ def _analyze(weights, datasets_directory, datasets, metrics, base_weights=None,
                 if base_weights is not None:
                     weights_file = get_weights_filepath(weights_name, variations=variation,
                                                         weights_directory=weights_directory)
-                    perturbation_proportion = _get_proportion_different(base_weights, load_weights(
-                        weights_file, weights_directory=weights_directory))
-                    output['perturbation_proportion'] = perturbation_proportion
+                    weight_values = load_weights(weights_file, weights_directory=weights_directory)
+                    for base_weights_name, base_weights_values in base_weights.items():
+                        print("Comparing weights '%s' with '%s'" % (weights_file, base_weights_name))
+                        output['base_weights'] = base_weights_name
+                        output['perturbation_proportion'] = _layer_proportion_different(base_weights_values,
+                                                                                        weight_values)
+                        output['relative_summed_absolute_weight_differences'] = \
+                            relative_summed_absolute_diffs(weight_values, base_weights_values)
 
                 results_filepath = get_results_filepath(dataset, weights_name, variations=variation)
                 results = _merge_previous_results(results, results_filepath)
-                print("Writing results to %s" % results_filepath)
                 output = {**results, **output}
+                print("Writing results to %s" % results_filepath)
                 pickle.dump(output, open(results_filepath, 'wb'))
 
 
@@ -152,7 +158,7 @@ def main():
     args = parser.parse_args()
     print('Running analysis with args', args)
     validate_datasets(args.datasets, args.datasets_directory)
-    base_weights = load_weights(args.base_weights, weights_directory=args.weights_directory) \
+    base_weights = load_weights(args.base_weights, weights_directory=args.weights_directory, keep_names=True) \
         if args.base_weights is not None else None
     metrics = dict((metric, metrics[metric]) for metric in args.metrics)
     _analyze(args.weights, args.datasets_directory, args.datasets, metrics, base_weights,

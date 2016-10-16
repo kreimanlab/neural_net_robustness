@@ -8,7 +8,8 @@ from collections import OrderedDict
 import h5py
 import numpy as np
 
-from weights import load_weights, proportion_different, validate_weights, merge_sub_layers
+from weights import load_weights, validate_weights, merge_sub_layers
+from weights.analyze import proportion_different
 
 
 def __dump_weights_to_hdf5(weights, filepath, base_weights_name=None):
