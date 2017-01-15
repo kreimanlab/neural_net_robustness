@@ -7,6 +7,10 @@ import tarfile
 import xml.etree.ElementTree as xml
 from urllib.request import urlretrieve
 
+import functools
+
+from net import vgg16, vgg19, resnet50, inceptionv3
+
 
 def __retrieve_tarred_content(remote_url, local_path):
     assert remote_url.endswith(".tar.gz") or remote_url.endswith(".tar")
@@ -14,20 +18,37 @@ def __retrieve_tarred_content(remote_url, local_path):
         print("Not downloading %s - local path %s already exists" % (remote_url, local_path))
         return
     tar_path = "%s.%s" % (local_path, "tar.gz" if remote_url.endswith(".tar.gz") else "tar")
-    __download_if_needed(remote_url, tar_path)
+    __download_if_needed(tar_path, functools.partial(__download_from_url, url=remote_url))
     __extract_tar(tar_path, local_path)
 
 
-def __download_if_needed(url, local_path):
+def __download_if_needed(local_path, retrieve):
     download_needed = not os.path.isfile(local_path)
     if download_needed:
-        print("Downloading %s..." % local_path)
-        filepart_path = "%s.filepart" % local_path
-        urlretrieve(url, filepart_path)
-        shutil.move(filepart_path, local_path)
+        print("Retrieving %s..." % local_path)
+        retrieve(local_path=local_path)
     else:
         print("Not downloading %s (exists already)" % local_path)
     return download_needed
+
+
+def __download_from_url(url, local_path):
+    filepart_path = "%s.filepart" % local_path
+    urlretrieve(url, filepart_path)
+    shutil.move(filepart_path, local_path)
+
+
+def __find_keras_weights(weights_prefix):
+    weights_directory = os.path.expanduser("~/.keras/models")
+    weights_files = [f for f in os.listdir(weights_directory) if f.startswith(weights_prefix)]
+    assert len(weights_files) is 1
+    return os.path.join(weights_directory, weights_files[0])
+
+
+def __load_keras_model(model_builder, local_path):
+    model = model_builder(weights='imagenet')
+    weights_path = __find_keras_weights(model.name)
+    shutil.move(weights_path, local_path)
 
 
 def __extract_tar(filepath, target_directory="."):
@@ -59,7 +80,7 @@ def __download_dataset(dataset, data_urls, convert_truths, collect_image_files, 
             print("Converting truths for %s/%s" % (dataset, data_type))
             truths = convert_truths(compressed_directory, data_type)
             assert truths, "No truths converted"
-            os.makedirs(datatype_directory)
+            os.makedirs(datatype_directory, exist_ok=True)
             pickle.dump(truths, open(truths_filepath, 'wb'))
 
         # images
@@ -131,11 +152,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Download Data')
     parser.add_argument('--datasets_directory', type=str, default='datasets',
                         help='The directory for the datasets')
+    parser.add_argument('--weights_directory', type=str, default='weights',
+                        help='The directory for the weights')
     args = parser.parse_args()
     print('Running with args', args)
 
     # weights
-    __download_if_needed("http://files.heuritech.com/weights/alexnet_weights.h5", "weights/alexnet.h5")
+    __download_if_needed(os.path.join(args.weights_directory, "alexnet.h5"),
+                         functools.partial(__download_from_url,
+                                           url="http://files.heuritech.com/weights/alexnet_weights.h5"))
+    for model_builder in [vgg16, vgg19, resnet50, inceptionv3]:
+        __download_if_needed(os.path.join(args.weights_directory, model_builder.__name__ + ".h5"),
+                             functools.partial(__load_keras_model, model_builder=model_builder))
 
     # datasets
     imagenet_urls = pickle.load(open(os.path.join(args.datasets_directory, 'ILSVRC2012_image_urls.p'), 'rb'))

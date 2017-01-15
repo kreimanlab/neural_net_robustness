@@ -5,8 +5,11 @@ This project requires Python version >= 3.2.
 First, install library requirements by running `pip install -r requirements.txt`.
 
 Then download model weights and datasets by running `python download_data.py`. This will:
-* download the following weights
-  * [alexnet](http://files.heuritech.com/weights/alexnet_weights.h5)
+* download the following weights, each pre-trained on an ILSVRC training set
+  * Alexnet: ILSVRC2012, [convnetskeras](https://github.com/heuritech/convnets-keras)' [model files](http://files.heuritech.com/weights/alexnet_weights.h5)
+  * VGG16 and VGG19: ILSVRC2014, [keras](https://github.com/fchollet/deep-learning-models) uses [VGG](http://www.robots.ox.ac.uk/~vgg/research/very_deep/)'s weights ([16](http://www.robots.ox.ac.uk/~vgg/software/very_deep/caffe/VGG_ILSVRC_16_layers.caffemodel), [19](http://www.robots.ox.ac.uk/~vgg/software/very_deep/caffe/VGG_ILSVRC_19_layers.caffemodel))
+  * ResNet50: ILSVRC2015,  [keras](https://github.com/fchollet/deep-learning-models) uses [Kaiming He](https://github.com/KaimingHe/deep-residual-networks)'s weights ([model files](https://onedrive.live.com/?authkey=%21AAFW2-FVoxeVRck&id=4006CBB8476FF777%2117887&cid=4006CBB8476FF777))
+  * Inceptionv3: [keras](https://github.com/fchollet/deep-learning-models)' trained weights
 * download the following datasets
   * [VOC2012](http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar) (training and validation data)
   * [ILSVRC2012](http://image-net.org/challenges/LSVRC/2012/) (training, validation and test data - note that the labels for the test data are all zero)
@@ -65,5 +68,5 @@ To run any of the Python progams on a cluster with [LSF](https://www.ibm.com/sup
 use the `run_lsf.sh` script, for instance:
 
     ./run_lsf.sh run.py --model alexnet
-Note that this script is tailored to the Orchestra cluster at the Harvard Medical School, 
-specifically a queue named `gpu` is assumed to exist. 
+Note that this script is tailored to our own cluster, 
+specifically a queue named `gpu` is assumed to exist.

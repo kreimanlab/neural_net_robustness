@@ -1,5 +1,5 @@
 h5py
 pillow
-keras
+keras>=1.1.0
 git+https://github.com/heuritech/convnets-keras
 matplotlib

@@ -1,13 +1,13 @@
 import argparse
+import functools
 import itertools
 import os
 import pickle
 
-import functools
 import numpy as np
 
 from datasets import get_data, validate_datasets
-from net import alexnet, preprocess_images_alexnet
+from net import alexnet, vgg16, vgg19, resnet50, inceptionv3
 from predictions import get_predictions_filepath
 from weights import validate_weights
 
@@ -38,8 +38,8 @@ def __image_generator(image_truth_generator):
         yield image
 
 
-def retrain(model, datasets, image_truth_generator,
-            num_epochs=10, image_batch_size=1000, datasets_directory="datasets", weights_directory="weights"):
+def train(model, datasets, image_truth_generator,
+          num_epochs=10, image_batch_size=1000, datasets_directory="datasets", weights_directory="weights"):
     for retrain_dataset in datasets:
         print("Collect %s" % retrain_dataset)
         truths_mapping = get_data(retrain_dataset, datasets_directory)
@@ -69,7 +69,7 @@ def predict(model, weights_names, datasets, image_truth_generator, image_batch_s
             generator = __image_generator(generator)
             predictions = model.predict_generator(generator, val_samples=len(truths_mapping),
                                                   max_q_size=image_batch_size)
-            mapped_predictions = dict((image, prediction) for image, prediction
+            mapped_predictions = dict((image_path, prediction) for image_path, prediction
                                       in zip(image_paths[:len(predictions)], predictions))
             results_filepath = get_predictions_filepath(dataset_name, weights_name,
                                                         predictions_directory=predictions_directory)
@@ -81,11 +81,10 @@ def predict(model, weights_names, datasets, image_truth_generator, image_batch_s
 
 if __name__ == '__main__':
     # options
-    models = {'alexnet': alexnet}
-    image_preprocessors = {'alexnet': preprocess_images_alexnet}
+    models = {'alexnet': alexnet, 'vgg16': vgg16, 'vgg19': vgg19, 'resnet50': resnet50, 'inceptionv3': inceptionv3}
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness')
-    parser.add_argument('--model', type=str, default=next(models.__iter__()),
+    parser.add_argument('--model', type=str, default='alexnet',
                         help='The model to run', choices=models.keys())
     parser.add_argument('--weights_directory', type=str, default='weights',
                         help='The directory in which the weights are stored in')
@@ -112,14 +111,14 @@ if __name__ == '__main__':
     model = models[args.model]()
     output_shape = model.get_output_shape_at(-1)
     generator = functools.partial(__image_truth_generator,
-                                  load_image=lambda path: image_preprocessors[args.model]([path]),
+                                  load_image=lambda path: model.preprocess_images([path]),
                                   output_length=output_shape[1])
     if weights is None:
-        print("Retraining")
+        print("Training")
         model.load_weights("weights/%s.h5" % args.model)
-        retrain(model, datasets, num_epochs=args.num_epochs,
-                image_truth_generator=generator, image_batch_size=args.image_batch_size,
-                datasets_directory=args.datasets_directory, weights_directory=args.weights_directory)
+        train(model, datasets, num_epochs=args.num_epochs,
+              image_truth_generator=generator, image_batch_size=args.image_batch_size,
+              datasets_directory=args.datasets_directory, weights_directory=args.weights_directory)
     else:
         print("Predicting")
         predict(model, weights, datasets,
