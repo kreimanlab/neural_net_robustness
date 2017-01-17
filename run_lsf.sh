@@ -20,7 +20,7 @@ if [[ $queue == gpu* ]]; then
     -W $duration \
     -q $queue \
     -o $(date +%Y-%m-%d_%H:%M:%S).out -e $(date +%Y-%m-%d_%H:%M:%S).err \
-    'THEANO_FLAGS="device=gpu`/opt/gpu_env.sh`"; $program $fnc'
+    'export THEANO_FLAGS="device=gpu`/opt/gpu_env.sh`"; '$program $fnc
 else
   bsub \
     $requests \
