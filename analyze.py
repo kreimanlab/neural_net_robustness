@@ -60,16 +60,6 @@ def _evaluate_metric(metric, predictions, truths_mapping):
     return metric(truths, predictions)
 
 
-def _merge_previous_results(results, results_filepath):
-    if os.path.isfile(results_filepath):
-        print("Merging with previous results")
-        previous_results = pickle.load(open(results_filepath, 'rb'))
-        merged_results = previous_results
-        merged_results.update(results)
-        results = merged_results
-    return results
-
-
 def _layer_proportion_different(base_weights, weights):
     """
     Find layer where the proportion difference is > 0 and return that.
@@ -107,11 +97,10 @@ def _analyze(weight_names, datasets_directory, datasets, metrics, base_weights=N
                 print("Analyzing %s..." % prediction_filepath, end='')
                 output = {'dataset': dataset, 'weights': weights_name}
                 variation = nums[prediction_filepath] if nums[prediction_filepath] is not None else False
-                results = {}
                 for metric_name, metric in metrics.items():
                     print(" %s" % metric_name, end='')
                     sys.stdout.flush()
-                    results[metric_name] = _evaluate_metric(metric, prediction, truths_mapping)
+                    output[metric_name] = _evaluate_metric(metric, prediction, truths_mapping)
                 print()
                 if base_weights is not None:
                     weights_file = get_weights_filepath(weights_name, variations=variation,
@@ -126,8 +115,6 @@ def _analyze(weight_names, datasets_directory, datasets, metrics, base_weights=N
                             relative_summed_absolute_diffs(weight_values, base_weights_values)
 
                 results_filepath = get_results_filepath(dataset, weights_name, variations=variation)
-                results = _merge_previous_results(results, results_filepath)
-                output = {**results, **output}
                 print("Writing results to %s" % results_filepath)
                 pickle.dump(output, open(results_filepath, 'wb'))
 
@@ -147,7 +134,7 @@ def main():
                         help='The datasets to compare the evaluations on')
     parser.add_argument('--metrics', type=str, nargs='+', default=metrics.keys(),
                         choices=metrics.keys(), help='The metrics to use for performance')
-    parser.add_argument('--base_weights', type=str, default="alexnet",
+    parser.add_argument('--base_weights', type=str, default=None,
                         help='The weights to compare perturbations with')
     parser.add_argument('--weights_directory', type=str, default='weights',
                         help='The directory all weights are stored in')
