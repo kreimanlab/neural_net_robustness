@@ -14,9 +14,19 @@ fi
 duration="24:0"
 program="python -u"
 fnc="$@"
-bsub \
-  $requests \
-  -W $duration \
-  -q $queue \
-  -o $(date +%Y-%m-%d_%H:%M:%S).out -e $(date +%Y-%m-%d_%H:%M:%S).err \
-  $program $fnc
+if [[ $queue == gpu* ]]; then
+  bsub \
+    $requests \
+    -W $duration \
+    -q $queue \
+    -o $(date +%Y-%m-%d_%H:%M:%S).out -e $(date +%Y-%m-%d_%H:%M:%S).err \
+    'THEANO_FLAGS="device=gpu`/opt/gpu_env.sh`"; $program $fnc'
+else
+  bsub \
+    $requests \
+    -W $duration \
+    -q $queue \
+    -o $(date +%Y-%m-%d_%H:%M:%S).out -e $(date +%Y-%m-%d_%H:%M:%S).err \
+    $program $fnc
+fi
+
