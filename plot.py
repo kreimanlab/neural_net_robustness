@@ -10,7 +10,7 @@ from matplotlib import pyplot
 from results import get_results_filepath
 from weights import load_weights, walk, has_sub_layers, merge_sub_layers
 from weights.analyze import weight_differences, absolute, means, stds, sum, max, \
-    z_score, summed_absolute_relative_diffs
+    z_score, summed_absolute_relative_diffs, count, divide
 
 
 def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
@@ -28,6 +28,8 @@ def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
 
 def _sorted_legend(ax):
     handles, labels = ax.get_legend_handles_labels()
+    if not handles:  # no perturbations
+        return
     # sort both labels and handles by labels
     labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
     ax.legend(handles, labels)
@@ -49,7 +51,7 @@ def _plot_weight_metric(weights_metric, figure_filename, ylabel=None):
 
 def _plot_num_weights(weights):
     for weights_name, weights_values in weights.items():
-        num_weights = walk(weights_values, collect=lambda _, x: x.size)
+        num_weights = count(weights_values)
         _plot_weight_metric(num_weights, "figures/num_weights/%s.pdf" % weights_name)
 
 
@@ -65,11 +67,20 @@ def _summed_absolute_zscore(weights, base_weights, weights_name, base_weights_na
                         ylabel='summed z-scores of differences')
 
 
-def _relativized_diffs(weights, base_weights, weights_name, base_weights_name):
+def _relativized_value_diffs(weights, base_weights, weights_name, base_weights_name):
     relativized_absolute_summed_diffs = summed_absolute_relative_diffs(weights, base_weights)
     _plot_weight_metric(relativized_absolute_summed_diffs, "figures/weight_diffs/%s-vs-%s-diff_by_basesum.pdf" % (
         base_weights_name, weights_name.replace('/', '_')),
                         ylabel='differences relativized to sum of base weights')
+
+
+def _relativized_value_and_num_diffs(weights, base_weights, weights_name, base_weights_name):
+    relativized_absolute_summed_diffs = summed_absolute_relative_diffs(weights, base_weights)
+    num_weights = count(base_weights)
+    relativized_to_num_weights = divide(relativized_absolute_summed_diffs, num_weights)
+    _plot_weight_metric(relativized_to_num_weights, "figures/weight_diffs/%s-vs-%s-diff_by_basesumandnum.pdf" % (
+        base_weights_name, weights_name.replace('/', '_')),
+                        ylabel='differences relativized to sum and number of base weights')
 
 
 def _hist(weights, base_weights, weights_name, base_weights_name):
@@ -105,7 +116,7 @@ def _plot_weights_diffs(weights):
     compare_weights = weights.keys() - [base_weight]
     for compare_name in compare_weights:
         # compute differences
-        for metric in [_hist, _summed_absolute_zscore, _relativized_diffs]:
+        for metric in [_relativized_value_and_num_diffs]:
             metric(weights[compare_name], weights[base_weight], compare_name, base_weight)
 
 
@@ -128,13 +139,38 @@ def _get_results(dataset, weights_name):
     return metrics
 
 
+def _get_weights_configuration(weights_name):
+    if weights_name.count('-') == 2:  # layer perturbation
+        model, layer, perturbation = weights_name.split('-')
+        proportion_start = re.search("\d", perturbation).start()
+        perturbation = perturbation[:proportion_start]
+    else:  # no perturbation
+        model, layer, perturbation = weights_name, None, None
+    return model, layer, perturbation
+
+
+def _get_weights_perturbation(weight_names):
+    perturbation = set([perturbation for weight_name in weight_names
+                        for _, _, perturbation in [_get_weights_configuration(weight_name)]
+                        if perturbation is not None])
+    if not perturbation:  # no perturbation
+        return ''
+    assert len(perturbation) is 1
+    return perturbation.pop()
+
+
 def _get_x_value(results, perturbation_type):
     if perturbation_type is None:
         return 0
-    elif perturbation_type is 'draw':
-        return np.mean(results['perturbation_proportion'])
-    elif perturbation_type is 'mutateGaussian':
-        return max(results['summed_absolute_relative_weight_differences'])
+    elif perturbation_type == 'draw':
+        proportions = results['perturbation_proportion']
+        assert np.std(proportions) < 0.1  # should be very similar among variations
+        return np.mean(proportions)
+    elif perturbation_type == 'mutateGaussian':
+        differences = results['relative_summed_absolute_weight_differences']
+        differences = [max(d) for d in differences]
+        assert np.std(differences) < 0.1  # should be very similar among variations
+        return np.mean(differences)
     else:
         raise ValueError("Unknown perturbation type '%s'" % perturbation_type)
 
@@ -142,15 +178,10 @@ def _get_x_value(results, perturbation_type):
 def _collect_layer_performances(dataset, weight_names, metric_name):
     layer_metrics = defaultdict(lambda: defaultdict(list))
     for weights_name in weight_names:
-        if weights_name.count('-') == 2:  # layer perturbation
-            model, layer, perturbation = weights_name.split('-')
-            proportion_start = re.search("\d", perturbation).start()
-            perturbation = perturbation[:proportion_start]
-        else:  # no perturbation
-            model, layer, perturbation = weights_name, None, None
+        model, layer, perturbation = _get_weights_configuration(weights_name)
         results = _get_results(dataset, weights_name)
         x = _get_x_value(results, perturbation)
-        metrics = results['results'][metric_name]
+        metrics = results[metric_name]
         layer_metrics[layer][x] += metrics
 
     layer_means = defaultdict(dict)
@@ -163,11 +194,12 @@ def _collect_layer_performances(dataset, weight_names, metric_name):
 
 
 def _plot_performances_by_datasets(weight_names, datasets, metric_names):
+    perturbation = _get_weights_perturbation(weight_names)
     for dataset in datasets:
         for metric_name in metric_names:
             layer_means, layer_errs = _collect_layer_performances(dataset, weight_names, metric_name)
             fig, ax = pyplot.subplots()
-            ax.set_xlabel('proportion of changed weights')
+            ax.set_xlabel('weight mutations in multiples of variance')
             ax.set_ylabel(metric_name)
             for layer in layer_means:
                 x = list(layer_means[layer].keys())
@@ -179,7 +211,7 @@ def _plot_performances_by_datasets(weight_names, datasets, metric_names):
                 else:  # single measurement
                     ax.errorbar(x, y, yerr=err, label=layer, marker='o')
             _sorted_legend(ax)
-            save_filepath = "figures/performance_by_dataset/%s-%s.pdf" % (dataset, metric_name)
+            save_filepath = "figures/performance_by_dataset/%s-%s-%s.pdf" % (dataset, perturbation, metric_name)
             print('Saving to %s...' % save_filepath)
             fig.savefig(save_filepath, bbox_inches='tight')
             pyplot.close(fig)

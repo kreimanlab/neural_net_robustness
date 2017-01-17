@@ -7,10 +7,6 @@ def weight_differences(weights1, weights2):
     return walk(weights1, collect=lambda key_chain, w1: w1 - walk_key_chain(weights2, key_chain))
 
 
-def relativize(weights, base_weights):
-    return walk(weights, collect=lambda key_chain, x: x / np.absolute(walk_key_chain(base_weights, key_chain)).sum())
-
-
 def absolute(weights):
     return walk(weights, collect=lambda _, x: np.absolute(x))
 
@@ -37,6 +33,18 @@ def max(weights):
 
     walk(weights, collect=find_max)
     return max_value
+
+
+def count(weights):
+    return walk(weights, collect=lambda _, x: x.size)
+
+
+def divide(denominator, divider):
+    return walk(denominator, collect=lambda key_chain, x: x / walk_key_chain(divider, key_chain))
+
+
+def relativize(weights, base_weights):
+    return walk(weights, collect=lambda key_chain, x: x / walk_key_chain(base_weights, key_chain))
 
 
 def proportion_different(weights1, weights2, mean_across_layers=False):
