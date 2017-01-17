@@ -15,10 +15,10 @@ def validate_datasets(datasets, datasets_directory="datasets"):
         if not dir_exist or not truth_exist)
 
 
-def get_data(dataset, datasets_directory="datasets"):
+def get_data(dataset, datasets_directory="datasets", convert_numbers=True):
     truths_mapping = pickle.load(open("%s/%s/ground_truths.p" % (datasets_directory, dataset), 'rb'))
     truths = truths_mapping.values()
-    if not all(isinstance(truth, Number) for truth in truths):
+    if convert_numbers and not all(isinstance(truth, Number) for truth in truths):
         try:
             truths_conversion = dict((truth, int(truth)) for truth in truths)
         except ValueError:
