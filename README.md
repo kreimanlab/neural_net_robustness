@@ -44,9 +44,8 @@ will perturb all 8 layers of `weights/alexnet.h5` using the ratios `{0.1, 0.2, .
 Run `python analyze.py` to analyze the results.
 For instance:
 
-    python run.py --model alexnet --weights perturbations/alexnet-conv_1-draw0.10 --datasets ILSVRC2012/val --metrics top5error
-will analyze the predictions produced by the model `alexnet` 
-with weights `weights/perturbations/alexnet-conv_1-draw0.10.h5` 
+    python analyze.py --weights perturbations/alexnet-conv_1-draw0.10 --datasets ILSVRC2012/val --metrics top5error
+will analyze the predictions from the weights `weights/perturbations/alexnet-conv_1-draw0.10.h5` 
 on `ILSVRC2012/val` using the `top5error` metric.
 
 ### Plotting
