@@ -32,7 +32,7 @@ def _sorted_legend(ax):
         return
     # sort both labels and handles by labels
     labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
-    ax.legend(handles, labels)
+    ax.legend(handles, labels, loc='lower left')
 
 
 def _plot_weight_metric(weights_metric, figure_filename, ylabel=None):
@@ -143,15 +143,16 @@ def _get_weights_configuration(weights_name):
     if weights_name.count('-') == 2:  # layer perturbation
         model, layer, perturbation = weights_name.split('-')
         proportion_start = re.search("\d", perturbation).start()
-        perturbation = perturbation[:proportion_start]
+        perturbation_type = perturbation[:proportion_start]
+        perturbation_proportion = float(perturbation[proportion_start:])
     else:  # no perturbation
-        model, layer, perturbation = weights_name, None, None
-    return model, layer, perturbation
+        model, layer, perturbation_type, perturbation_proportion = weights_name, None, None, None
+    return model, layer, perturbation_type, perturbation_proportion
 
 
 def _get_weights_perturbation(weight_names):
     perturbation = set([perturbation for weight_name in weight_names
-                        for _, _, perturbation in [_get_weights_configuration(weight_name)]
+                        for _, _, perturbation, _ in [_get_weights_configuration(weight_name)]
                         if perturbation is not None])
     if not perturbation:  # no perturbation
         return ''
@@ -159,30 +160,13 @@ def _get_weights_perturbation(weight_names):
     return perturbation.pop()
 
 
-def _get_x_value(results, perturbation_type):
-    if perturbation_type is None:
-        return 0
-    elif perturbation_type == 'draw':
-        proportions = results['perturbation_proportion']
-        assert np.std(proportions) < 0.1  # should be very similar among variations
-        return np.mean(proportions)
-    elif perturbation_type == 'mutateGaussian':
-        differences = results['relative_summed_absolute_weight_differences']
-        differences = [max(d) for d in differences]
-        assert np.std(differences) < 0.1  # should be very similar among variations
-        return np.mean(differences)
-    else:
-        raise ValueError("Unknown perturbation type '%s'" % perturbation_type)
-
-
 def _collect_layer_performances(dataset, weight_names, metric_name):
     layer_metrics = defaultdict(lambda: defaultdict(list))
     for weights_name in weight_names:
-        model, layer, perturbation = _get_weights_configuration(weights_name)
+        model, layer, perturbation, proportion = _get_weights_configuration(weights_name)
         results = _get_results(dataset, weights_name)
-        x = _get_x_value(results, perturbation)
         metrics = results[metric_name]
-        layer_metrics[layer][x] += metrics
+        layer_metrics[layer][proportion] += metrics
 
     layer_means = defaultdict(dict)
     layer_errs = defaultdict(dict)
