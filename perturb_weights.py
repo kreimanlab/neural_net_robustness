@@ -47,7 +47,10 @@ def __mutate_gaussian(x, proportion):
     # but is still the primary parameter of weight perturbations
     # It would help clarity of arg names to use different names for the different uses,
     # but this was omitted for sake of succinctness.
-    return x + np.random.normal(loc=0.0, scale=proportion * np.std(x), size=x.shape)
+    gaussian_scale = proportion * np.std(x)
+    if gaussian_scale <= 0:
+        return x
+    return x + np.random.normal(loc=0.0, scale=gaussian_scale, size=x.shape)
 
 
 def __divide_sub_weights(target_weights, source_weights, layer):

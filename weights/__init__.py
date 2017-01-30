@@ -1,5 +1,5 @@
 import os
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from functools import reduce
 
 import h5py
@@ -12,12 +12,24 @@ def get_weights_filepath(weights_name, variations=False, weights_directory='weig
     return get_files(weights_name + ".h5", variations=variations, directory=weights_directory)
 
 
+def sort_weights_by(weights, layer_sorting):
+    assert Counter(layer_sorting) == Counter(weights.keys())
+    sorted_weights = OrderedDict()
+    for layer in layer_sorting:
+        sorted_weights[layer] = weights[layer]
+    return sorted_weights
+
+
 def load_weights(*weights_names, keep_names=False, weights_directory='weights'):
     weights = list()
     for weights_name in weights_names:
         filepath = "%s/%s%s" % (weights_directory, weights_name, '.h5' if not weights_name.endswith('.h5') else '')
         with h5py.File(filepath, 'r') as file:
             w = walk(file, lambda _, x: np.array(x))
+            if 'layer_names' in file.attrs:
+                # keras reordering
+                sorted_layers = [l.decode('utf8') for l in file.attrs['layer_names']]
+                w = sort_weights_by(w, sorted_layers)
             weights.append(w)
     if not keep_names:
         return weights if len(weights) > 1 else weights[0]
