@@ -104,6 +104,7 @@ def __perturb_all(weights, layer, perturb_func, proportion, perturbation_name):
 
     perturbed_weights = OrderedDict()
 
+    indices = None
     if perturbation_name == 'nodeKnockout':
         # if knocking out node, in which we must remove both the weights and biases from the same nodes
         for weight_name, weight_values in layer_weights.items():
