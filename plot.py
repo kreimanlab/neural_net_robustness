@@ -146,7 +146,7 @@ def _get_weights_configuration(weights_name):
         perturbation_type = perturbation[:proportion_start]
         perturbation_proportion = float(perturbation[proportion_start:])
     else:  # no perturbation
-        model, layer, perturbation_type, perturbation_proportion = weights_name, None, None, None
+        model, layer, perturbation_type, perturbation_proportion = weights_name, None, None, 0
     return model, layer, perturbation_type, perturbation_proportion
 
 
@@ -196,7 +196,7 @@ def _plot_performances_by_datasets(weight_names, datasets, metric_names):
                     ax.errorbar(x, y, yerr=err, label=layer, marker='o')
             ax.set_xlim(np.array(ax.get_xlim()) + np.array([-.25, .25]))
             ax.set_ylim(0, 1)
-            _sorted_legend(ax)
+            # _sorted_legend(ax)
             save_filepath = "figures/performance_by_dataset/%s-%s-%s.pdf" % (dataset, perturbation, metric_name)
             print('Saving to %s...' % save_filepath)
             fig.savefig(save_filepath, bbox_inches='tight')
