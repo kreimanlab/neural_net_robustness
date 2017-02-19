@@ -3,9 +3,12 @@ from collections import OrderedDict, Counter
 from functools import reduce
 
 import h5py
+import itertools
 import numpy as np
 
 from predictions import get_files
+
+_EXPANSION_FILE_IDENTIFIER = '<'
 
 
 def get_weights_filepath(weights_name, variations=False, weights_directory='weights'):
@@ -20,7 +23,25 @@ def sort_weights_by(weights, layer_sorting):
     return sorted_weights
 
 
+def _resolve_weights_names_file(filepath):
+    with open(filepath) as f:
+        weights_names = f.readlines()
+        weights_names = [x.strip() for x in weights_names]
+        return weights_names
+
+
+def expand_weights_names(*weights_names):
+    """
+    Expand file identifiers in the given weights_names
+    """
+    return list(itertools.chain(*[[weights_name] if weights_name[0] is not _EXPANSION_FILE_IDENTIFIER
+                                  else _resolve_weights_names_file(weights_name[1:])
+                                  for weights_name in weights_names]))
+
+
 def load_weights(*weights_names, keep_names=False, weights_directory='weights'):
+    weights_names = expand_weights_names(*weights_names)
+
     weights = list()
     for weights_name in weights_names:
         filepath = "%s/%s%s" % (weights_directory, weights_name, '.h5' if not weights_name.endswith('.h5') else '')

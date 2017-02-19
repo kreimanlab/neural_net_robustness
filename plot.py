@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import pyplot
 
 from results import get_results_filepath
-from weights import load_weights, walk, has_sub_layers, merge_sub_layers
+from weights import load_weights, walk, has_sub_layers, merge_sub_layers, expand_weights_names
 from weights.analyze import weight_differences, absolute, means, stds, sum, max, \
     z_score, summed_absolute_relative_diffs, count, divide
 
@@ -194,6 +194,8 @@ def _plot_performances_by_datasets(weight_names, datasets, metric_names):
                     ax.errorbar(x, y, yerr=err, label=layer)
                 else:  # single measurement
                     ax.errorbar(x, y, yerr=err, label=layer, marker='o')
+            ax.set_xlim(np.array(ax.get_xlim()) + np.array([-.25, .25]))
+            ax.set_ylim(0, 1)
             _sorted_legend(ax)
             save_filepath = "figures/performance_by_dataset/%s-%s-%s.pdf" % (dataset, perturbation, metric_name)
             print('Saving to %s...' % save_filepath)
@@ -220,7 +222,7 @@ def main():
                         help='The directory in which the weights are stored in')
     args = parser.parse_args()
     print('Running plot with args', args)
-    weights = args.weights if args.task == 'performance' \
+    weights = expand_weights_names(*args.weights) if args.task == 'performance' \
         else load_weights(*args.weights, keep_names=True, weights_directory=args.weights_directory)
     task = tasks[args.task]
     task(weights, args.datasets, args.metrics)
