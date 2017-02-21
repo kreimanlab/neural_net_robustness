@@ -62,17 +62,22 @@ def __mutate_gaussian(x, proportion,indices=None):
     return x + np.random.normal(loc=0.0, scale=gaussian_scale, size=x.shape)
 
 def __choose_index_for_knockout(x,proportion):
-    # implemented only for conv layers so far
+    # print(x.shape)
     if x.shape[0] > 1000:
-        print("Error:  node knockout not implemented for dense layers")
-        sys.exit(0)
+        # dense layers
+        numFilters = x.shape[1]
+        num_elements = math.floor(proportion * numFilters)
+        indices = random.sample(range(numFilters), num_elements)
+        return indices
 
     if x.shape[0]==2:
+        # split conv layer
         numFilters = x.shape[1]
         num_elements = math.floor(proportion * numFilters)
         indices = random.sample(range(numFilters), num_elements)
         return indices
     else:
+        # single/merged conv layer
         numFilters = x.shape[0]
         num_elements = math.floor(proportion * numFilters)
         indices = random.sample(range(numFilters), num_elements)
