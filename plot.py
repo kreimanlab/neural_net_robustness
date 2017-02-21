@@ -3,23 +3,49 @@ import os
 import pickle
 import re
 from collections import defaultdict
+import seaborn as sns
 
 import numpy as np
+import matplotlib
 from matplotlib import pyplot
 
 from results import get_results_filepath
 from weights import load_weights, walk, has_sub_layers, merge_sub_layers
-from weights.analyze import weight_differences, absolute, means, stds, sum, max, \
+from weights.analyze import weight_differences, absolute, means, medians, stds, sum, max, \
     z_score, summed_absolute_relative_diffs, count, divide
+
+matplotlib.rcParams['ps.useafm'] = True
+matplotlib.rcParams['pdf.use14corefonts'] = True
+# matplotlib.rcParams['text.usetex'] = True
+# matplotlib.rc('xtick', labelsize=16) 
+# matplotlib.rc('ytick', labelsize=20) 
+matplotlib.rc('axes', labelsize=14) 
+matplotlib.rc('ytick', labelsize=14) 
+matplotlib.rc('xtick', labelsize=14) 
+
+colorList = sns.color_palette()+sns.color_palette("husl", 8)[:2]
 
 
 def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
-    pyplot.bar(x, y, **kwargs)
+    # color = [sns.color_palette()[1] for _ in range(len(xticks))]
+    color = []
+    for tick in xticks:
+        if "conv" in tick:
+            color.append(colorList[int(tick.split("conv_")[1].split("_")[0])-1])
+        else:
+            color.append(colorList[int(tick.split("dense_")[1].split("_")[0])+4])
+    matplotlib.rc('xtick', labelsize=16) 
+
+    pyplot.bar(x, y, color=color, **kwargs)
     pyplot.ylabel(ylabel)
+    ax = pyplot.gca()
+    ax.yaxis.set_label_coords(-0.05,0.35)
     if xticks is not None:
         pyplot.xticks(x, xticks, rotation=90, ha='left')
+        ax.set_xlim([0,len(xticks)])
     if save_filepath is not None:
         os.makedirs(os.path.dirname(save_filepath), exist_ok=True)
+        pyplot.tight_layout()
         pyplot.savefig(save_filepath, bbox_inches='tight')
         pyplot.close()
     else:
@@ -60,11 +86,13 @@ def _summed_absolute_zscore(weights, base_weights, weights_name, base_weights_na
     z_scored_diffs = absolute(z_score(absolute(weights_diffs),
                                       means(absolute(base_weights)),
                                       stds(absolute(base_weights))))
-    summed_z_scores = sum(z_scored_diffs)
+    summed_z_scores = means(z_scored_diffs)
+    # summed_z_scores = medians(z_scored_diffs)
+    # summed_z_scores = sum(z_scored_diffs)
 
     _plot_weight_metric(summed_z_scores, "figures/weight_diffs/%s-vs-%s-zscore.pdf" % (
         base_weights_name, weights_name.replace('/', '_')),
-                        ylabel='summed z-scores of differences')
+                        ylabel='mean absolute z-score of weight change from retraining')
 
 
 def _relativized_value_diffs(weights, base_weights, weights_name, base_weights_name):
@@ -116,7 +144,8 @@ def _plot_weights_diffs(weights):
     compare_weights = weights.keys() - [base_weight]
     for compare_name in compare_weights:
         # compute differences
-        for metric in [_relativized_value_and_num_diffs]:
+        # for metric in [_relativized_value_and_num_diffs]:
+        for metric in [_summed_absolute_zscore]:
             metric(weights[compare_name], weights[base_weight], compare_name, base_weight)
 
 
