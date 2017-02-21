@@ -42,6 +42,14 @@ def __draw(x, proportion,indices=None):
     x_prime[indices] = random.sample(list(x_prime), num_elements)
     return x_prime.reshape(x.shape)
 
+def __synapse_knockout(x, proportion,indices=None):
+    num_elements = math.floor(proportion * x.size)
+    x_prime = x.reshape(x.size)
+    indices = random.sample(range(x.size), num_elements)
+    #x_prime[indices] = random.sample(list(x_prime), num_elements)
+    x_prime[indices] = np.zeros((num_elements))
+    return x_prime.reshape(x.shape)
+
 
 def __mutate_gaussian(x, proportion,indices=None):
     # Note: proportion is used in a different context than in __draw,
@@ -104,6 +112,7 @@ def __perturb_all(weights, layer, perturb_func, proportion, perturbation_name):
 
     perturbed_weights = OrderedDict()
 
+    indices = None
     if perturbation_name == 'nodeKnockout':
         # if knocking out node, in which we must remove both the weights and biases from the same nodes
         for weight_name, weight_values in layer_weights.items():
@@ -127,7 +136,7 @@ def __perturb_all(weights, layer, perturb_func, proportion, perturbation_name):
 
 def main():
     # options
-    perturbations = {'draw': __draw, 'mutateGaussian': __mutate_gaussian, 'nodeKnockout': __node_knockout}
+    perturbations = {'draw': __draw, 'mutateGaussian': __mutate_gaussian, 'nodeKnockout': __node_knockout,  'synapseKnockout':__synapse_knockout}
     # params - command line
     parser = argparse.ArgumentParser(description='Neural Net Robustness - Weight Perturbation')
     parser.add_argument('--weights', type=str, nargs='+', default=['alexnet'],
