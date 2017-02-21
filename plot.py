@@ -10,13 +10,8 @@ import matplotlib
 from matplotlib import pyplot
 
 from results import get_results_filepath
-<<<<<<< HEAD
 from weights import load_weights, walk, has_sub_layers, merge_sub_layers
 from weights.analyze import weight_differences, absolute, means, medians, stds, sum, max, \
-=======
-from weights import load_weights, walk, has_sub_layers, merge_sub_layers, expand_weights_names
-from weights.analyze import weight_differences, absolute, means, stds, sum, max, \
->>>>>>> fc3a8997aab786c3d6ca7c0dbdd42b2983f30135
     z_score, summed_absolute_relative_diffs, count, divide
 
 matplotlib.rcParams['ps.useafm'] = True
