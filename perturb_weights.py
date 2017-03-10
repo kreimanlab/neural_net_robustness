@@ -63,6 +63,7 @@ def __mutate_gaussian(x, proportion,indices=None):
 
 def __choose_index_for_knockout(x,proportion):
     # print(x.shape)
+
     if x.shape[0] > 1000:
         # dense layers
         numFilters = x.shape[1]
@@ -84,7 +85,15 @@ def __choose_index_for_knockout(x,proportion):
         return indices
 
 def __node_knockout(x, proportion,indices=None):
-    if x.shape[0]==2:
+
+    if x.shape[0] >= 1000:  # dense layer
+        if len(x.shape) > 1: # weights
+            filterSize = x.shape[0]
+            x[:,indices] = np.zeros((filterSize,len(indices)))
+        else: #biases
+            x[indices] = 0
+
+    if x.shape[0]==2: # split layer
         filterSize = x.shape[2:]
         x[0,indices] = np.zeros(filterSize)
         x[1,indices] = np.zeros(filterSize)
@@ -177,6 +186,7 @@ def main():
                         perturbed_weights = copy.deepcopy(weight_values)
 
                         __perturb_all(perturbed_weights, layer, functools.partial(perturb, proportion=proportion),proportion,perturbation_name=perturbation_name)
+
                         assert proportion_different(weight_values, perturbed_weights, mean_across_layers=True) > 0, \
                             "No weights changed"
                         save_filepath = '%s/perturbations/%s-%s-%s%.2f-num%d.h5' % (
@@ -184,6 +194,12 @@ def main():
                         __dump_weights_to_hdf5(perturbed_weights, save_filepath, base_weights_name=weight_name)
                         print('Saved to %s' % save_filepath)
 
+                        # for layer_name, layer_values in perturbed_weights.items():
+                        #     for weight_name, _ in layer_values.items():
+                        #         print (weight_name,":")
+                        #         # print (perturbed_weights[layer_name][weight_name]-weight_values[layer_name][weight_name])
+                        #         print (perturbed_weights[layer_name][weight_name])
+                                
 
-if __name__ == '__main__':
-    main()
+
+if __name__ == '__main__':    main()
