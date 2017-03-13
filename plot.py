@@ -2,28 +2,29 @@ import argparse
 import os
 import pickle
 import re
+import warnings
 from collections import defaultdict
+
+import matplotlib
+import numpy as np
+from matplotlib import pyplot
 import seaborn as sns
 
-import numpy as np
-import matplotlib
-from matplotlib import pyplot
-
 from results import get_results_filepath
-from weights import load_weights, walk, has_sub_layers, merge_sub_layers
-from weights.analyze import weight_differences, absolute, means, medians, stds, sum, max, \
-    z_score, summed_absolute_relative_diffs, count, divide
+from weights import load_weights, walk, has_sub_layers, merge_sub_layers, expand_weights_names
+from weights.analyze import weight_differences, absolute, means, stds, z_score, summed_absolute_relative_diffs, count, \
+    divide
 
 matplotlib.rcParams['ps.useafm'] = True
 matplotlib.rcParams['pdf.use14corefonts'] = True
 # matplotlib.rcParams['text.usetex'] = True
 # matplotlib.rc('xtick', labelsize=16) 
 # matplotlib.rc('ytick', labelsize=20) 
-matplotlib.rc('axes', labelsize=14) 
-matplotlib.rc('ytick', labelsize=14) 
-matplotlib.rc('xtick', labelsize=14) 
+matplotlib.rc('axes', labelsize=14)
+matplotlib.rc('ytick', labelsize=14)
+matplotlib.rc('xtick', labelsize=14)
 
-colorList = sns.color_palette()+sns.color_palette("husl", 8)[:2]
+colorList = sns.color_palette() + sns.color_palette("husl", 8)[:2]
 
 
 def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
@@ -31,18 +32,18 @@ def _plot_bar(x, y, xticks=None, ylabel=None, save_filepath=None, **kwargs):
     color = []
     for tick in xticks:
         if "conv" in tick:
-            color.append(colorList[int(tick.split("conv_")[1].split("_")[0])-1])
+            color.append(colorList[int(tick.split("conv_")[1].split("_")[0]) - 1])
         else:
-            color.append(colorList[int(tick.split("dense_")[1].split("_")[0])+4])
-    matplotlib.rc('xtick', labelsize=16) 
+            color.append(colorList[int(tick.split("dense_")[1].split("_")[0]) + 4])
+    matplotlib.rc('xtick', labelsize=16)
 
     pyplot.bar(x, y, color=color, **kwargs)
     pyplot.ylabel(ylabel)
     ax = pyplot.gca()
-    ax.yaxis.set_label_coords(-0.05,0.35)
+    ax.yaxis.set_label_coords(-0.05, 0.35)
     if xticks is not None:
         pyplot.xticks(x, xticks, rotation=90, ha='left')
-        ax.set_xlim([0,len(xticks)])
+        ax.set_xlim([0, len(xticks)])
     if save_filepath is not None:
         os.makedirs(os.path.dirname(save_filepath), exist_ok=True)
         pyplot.tight_layout()
@@ -189,7 +190,7 @@ def _get_weights_perturbation(weight_names):
     return perturbation.pop()
 
 
-def _collect_layer_performances(dataset, weight_names, metric_name):
+def _collect_layer_performances(dataset, weight_names, metric_name, prefix_unchanged=False):
     layer_metrics = defaultdict(lambda: defaultdict(list))
     for weights_name in weight_names:
         model, layer, perturbation, proportion = _get_weights_configuration(weights_name)
@@ -203,18 +204,37 @@ def _collect_layer_performances(dataset, weight_names, metric_name):
         for proportion in layer_metrics[layer]:
             layer_means[layer][proportion] = np.mean(layer_metrics[layer][proportion])
             layer_errs[layer][proportion] = np.std(layer_metrics[layer][proportion])
+
+    # prefix unchanged metric to all layers
+    if prefix_unchanged:
+        assert None in layer_metrics, "no unchanged performance results found"
+        for layer in layer_metrics:
+            layer_means[layer][0] = layer_means[None][0]
+            layer_errs[layer][0] = layer_errs[None][0]
+        del layer_means[None]
+        del layer_errs[None]
+
     return layer_means, layer_errs
+
+
+def _set_color_palette(num_colors):
+    palette = sns.color_palette('deep', min(6, num_colors))  # default palette has only 6 colors
+    if len(palette) < num_colors:
+        palette += sns.color_palette("husl", num_colors)[:num_colors - len(palette)]
+    sns.set_palette(palette)
 
 
 def _plot_performances_by_datasets(weight_names, datasets, metric_names):
     perturbation = _get_weights_perturbation(weight_names)
     for dataset in datasets:
         for metric_name in metric_names:
-            layer_means, layer_errs = _collect_layer_performances(dataset, weight_names, metric_name)
+            layer_means, layer_errs = _collect_layer_performances(dataset, weight_names, metric_name,
+                                                                  prefix_unchanged=True)
+            _set_color_palette(len(layer_means))
             fig, ax = pyplot.subplots()
-            ax.set_xlabel('weight mutations in multiples of variance')
+            ax.set_xlabel('proportion')
             ax.set_ylabel(metric_name)
-            for layer in layer_means:
+            for layer in sorted(layer for layer in layer_means):
                 x = list(layer_means[layer].keys())
                 y = list(layer_means[layer].values())
                 err = list(layer_errs[layer].values())
@@ -222,10 +242,11 @@ def _plot_performances_by_datasets(weight_names, datasets, metric_names):
                 if len(x) > 1:  # multiple measurements
                     ax.errorbar(x, y, yerr=err, label=layer)
                 else:  # single measurement
+                    warnings.warn("only one measurement for layer %s" % layer, UserWarning)
                     ax.errorbar(x, y, yerr=err, label=layer, marker='o')
-            ax.set_xlim(np.array(ax.get_xlim()) + np.array([-.25, .25]))
             ax.set_ylim(0, 1)
-            # _sorted_legend(ax)
+            _sorted_legend(ax)
+            fig.tight_layout()
             save_filepath = "figures/performance_by_dataset/%s-%s-%s.pdf" % (dataset, perturbation, metric_name)
             print('Saving to %s...' % save_filepath)
             fig.savefig(save_filepath, bbox_inches='tight')
