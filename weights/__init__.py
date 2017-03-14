@@ -26,7 +26,8 @@ def sort_weights_by(weights, layer_sorting):
 def _resolve_weights_names_file(filepath):
     with open(filepath) as f:
         weights_names = f.readlines()
-        weights_names = [x.strip() for x in weights_names]
+        weights_names = [x.strip() for x in weights_names]  # remove whitespace
+        weights_names = [x for x in weights_names if x]  # remove empty newlines
         return weights_names
 
 
