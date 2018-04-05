@@ -1,3 +1,5 @@
+# Code accompanying "On the Robustness of Convolutional Neural Networks to Internal Architecture and Weight Perturbations N Cheney, M Schrimpf, G Kreiman - arXiv preprint arXiv:1703.08245, 2017"
+https://arxiv.org/abs/1703.08245
 
 ## Setup
 This project requires Python version >= 3.2.
