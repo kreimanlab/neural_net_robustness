@@ -3,7 +3,7 @@ On the Robustness of Convolutional Neural Networks to Internal Architecture and 
 
 Nicholas Cheney*, Martin Schrimpf*, Gabriel Kreiman - arXiv:1703.08245, 2017.
 
-https://arxiv.org/abs/1703.08245
+https://arxiv.org/abs/1703.08245, https://cbmm.mit.edu/sites/default/files/publications/CBMM-Memo-065_0.pdf
 
 ## Setup
 This project requires Python version >= 3.2.
